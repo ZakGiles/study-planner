@@ -15,6 +15,7 @@
     daysFromToday,
     todayISO,
     parseIntervals,
+    logOffsets,
     spacedPreview,
   } from './dates';
 
@@ -33,10 +34,21 @@
   let addMode: 'manual' | 'spaced' = 'spaced';
   let manualDate = todayISO();
   let spacedStart = todayISO();
-  let spacedIntervals = '0, 1, 3, 7, 14, 30';
 
-  $: intervals = parseIntervals(spacedIntervals);
-  $: preview = spacedPreview(spacedStart, intervals);
+  // Spaced repetition supports a fixed interval list or a logarithmic curve.
+  let spacedCurve: 'fixed' | 'log' = 'fixed';
+  let spacedIntervals = '0, 1, 3, 7, 14, 30';
+  let logDilation = 10;
+  let logFactor = 1.4;
+  let logCount = 6;
+
+  $: offsets =
+    spacedCurve === 'fixed'
+      ? parseIntervals(spacedIntervals)
+      : logOffsets(logDilation, logFactor, logCount);
+  // Unique, sorted offsets — what actually gets added (dates are de-duplicated).
+  $: uniqueOffsets = Array.from(new Set(offsets)).sort((a, b) => a - b);
+  $: preview = spacedPreview(spacedStart, offsets);
   $: doneCount = topic.sessions.filter((s) => s.done).length;
   $: total = topic.sessions.length;
   $: progress = total ? Math.round((doneCount / total) * 100) : 0;
@@ -70,8 +82,8 @@
   }
 
   async function generateSpaced() {
-    if (!spacedStart) return;
-    await run(AddSpacedSessions(topic.id, spacedStart, intervals));
+    if (!spacedStart || offsets.length === 0) return;
+    await run(AddSpacedSessions(topic.id, spacedStart, offsets));
   }
 
   function sessionState(date: string, done: boolean): string {
@@ -146,16 +158,49 @@
           <span>Start</span>
           <input type="date" bind:value={spacedStart} />
         </label>
-        <label class="field grow">
-          <span>Days from start</span>
-          <input type="text" bind:value={spacedIntervals} placeholder="0, 1, 3, 7, 14, 30" />
-        </label>
-        <button class="btn primary" on:click={generateSpaced} disabled={busy || preview.length === 0}>Generate</button>
       </div>
+
+      <div class="curve-toggle">
+        <button class:active={spacedCurve === 'fixed'} on:click={() => (spacedCurve = 'fixed')}>Fixed intervals</button>
+        <button class:active={spacedCurve === 'log'} on:click={() => (spacedCurve = 'log')}>Logarithmic</button>
+      </div>
+
+      {#if spacedCurve === 'fixed'}
+        <div class="row">
+          <label class="field grow">
+            <span>Days from start</span>
+            <input type="text" bind:value={spacedIntervals} placeholder="0, 1, 3, 7, 14, 30" />
+          </label>
+          <button class="btn primary" on:click={generateSpaced} disabled={busy || preview.length === 0}>Generate</button>
+        </div>
+      {:else}
+        <div class="row">
+          <label class="field num">
+            <span>Dilation</span>
+            <input type="number" min="0" step="0.5" bind:value={logDilation} />
+          </label>
+          <label class="field num">
+            <span>Factor</span>
+            <input type="number" min="0" step="0.1" bind:value={logFactor} />
+          </label>
+          <label class="field num">
+            <span>Sessions</span>
+            <input type="number" min="1" max="60" step="1" bind:value={logCount} />
+          </label>
+          <button class="btn primary" on:click={generateSpaced} disabled={busy || preview.length === 0}>Generate</button>
+        </div>
+        <p class="hint">offset(n) = dilation × factor<sup>n</sup> × ln(n+1) days from start</p>
+      {/if}
+
       {#if preview.length}
         <p class="preview">→ {preview.length} session{preview.length === 1 ? '' : 's'}: {formatDate(preview[0])}{preview.length > 1 ? ` … ${formatDate(preview[preview.length - 1])}` : ''}</p>
-      {:else}
+        {#if spacedCurve === 'log'}
+          <p class="preview muted">offsets: {uniqueOffsets.join(', ')} days</p>
+        {/if}
+      {:else if spacedCurve === 'fixed'}
         <p class="preview muted">Enter day offsets, e.g. <code>0, 1, 3, 7, 14, 30</code></p>
+      {:else}
+        <p class="preview muted">Set a dilation, factor and session count.</p>
       {/if}
     {/if}
   </div>
@@ -336,6 +381,28 @@
     box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
   }
 
+  .curve-toggle {
+    display: inline-flex;
+    gap: 0.4rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .curve-toggle button {
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--muted);
+    padding: 0.28rem 0.7rem;
+    border-radius: 99px;
+    cursor: pointer;
+    font-size: 0.78rem;
+  }
+
+  .curve-toggle button.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
   .row {
     display: flex;
     align-items: flex-end;
@@ -354,6 +421,24 @@
   .field.grow {
     flex: 1;
     min-width: 140px;
+  }
+
+  .field.num {
+    width: 88px;
+  }
+
+  .field.num input {
+    width: 100%;
+  }
+
+  .hint {
+    margin: 0.1rem 0 0;
+    font-size: 0.74rem;
+    color: var(--muted);
+  }
+
+  .hint sup {
+    font-size: 0.6rem;
   }
 
   .preview {
