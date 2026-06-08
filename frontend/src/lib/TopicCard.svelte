@@ -83,6 +83,12 @@
 
   async function generateSpaced() {
     if (!spacedStart || offsets.length === 0) return;
+    if (total > 0) {
+      const ok = window.confirm(
+        `This will clear the ${total} existing study date${total === 1 ? '' : 's'} for “${topic.name}” and replace ${total === 1 ? 'it' : 'them'} with the new schedule.`
+      );
+      if (!ok) return;
+    }
     await run(AddSpacedSessions(topic.id, spacedStart, offsets));
   }
 
