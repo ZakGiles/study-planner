@@ -46,6 +46,7 @@ body {
 
 input[type="text"],
 input[type="date"],
+input[type="number"],
 textarea {
   font: inherit;
   color: var(--text);
@@ -59,6 +60,7 @@ textarea {
 
 input[type="text"]:focus,
 input[type="date"]:focus,
+input[type="number"]:focus,
 textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);

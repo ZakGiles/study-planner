@@ -55,6 +55,29 @@ export function parseIntervals(s: string): number[] {
     .map((n) => Math.round(n));
 }
 
+// logOffsets builds day-offsets from a logarithmic curve. For each step n
+// (starting at 0) the offset is:
+//
+//     offset(n) = dilation * factor^n * ln(n + 1)
+//
+// The dilation is scaled by `factor` at every step (so it compounds across all
+// steps), and ln(n+1) is the partial log-graph term — step 0 is always the
+// start date because ln(1) = 0. Offsets are rounded to whole days; negatives
+// (only possible with a negative dilation) are dropped to match the backend.
+export function logOffsets(dilation: number, factor: number, count: number): number[] {
+  const out: number[] = [];
+  const n = Math.floor(count);
+  if (!Number.isFinite(dilation) || !Number.isFinite(factor) || !Number.isFinite(n) || n < 1) {
+    return out;
+  }
+  for (let i = 0; i < n; i++) {
+    const scaled = dilation * Math.pow(factor, i);
+    const offset = Math.round(scaled * Math.log(i + 1));
+    if (Number.isFinite(offset) && offset >= 0) out.push(offset);
+  }
+  return out;
+}
+
 // spacedPreview mirrors the Go backend: start date + day offsets -> sorted,
 // de-duplicated ISO dates.
 export function spacedPreview(startISO: string, intervals: number[]): string[] {
