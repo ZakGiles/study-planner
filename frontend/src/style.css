@@ -1,14 +1,86 @@
+/* ============================================================================
+   Study Planner — design system
+   Dark "launcher / control panel" aesthetic: deep slate surfaces, a confident
+   cyan-blue accent, crisp small radii (never pill-rounded), tabular numerals,
+   and fast, restrained motion. Inspired by Steam's dark UI.
+   ========================================================================== */
+
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("assets/fonts/hanken-grotesk.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("assets/fonts/bricolage-grotesque.woff2") format("woff2");
+}
+
 :root {
-  --bg: #f4f5f7;
-  --card: #ffffff;
-  --chip: #f6f7f9;
-  --text: #1f2430;
-  --muted: #6b7280;
-  --border: #e5e7eb;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --danger: #dc2626;
-  --warn: #d97706;
+  color-scheme: dark;
+
+  /* Surfaces — deep desaturated slate */
+  --bg: #0b1118;
+  --surface: #141d27;       /* cards & panels */
+  --surface-2: #1b2631;     /* inputs, chips */
+  --surface-3: #243140;     /* hover / raised */
+  --inset: #0e151d;         /* sunken inputs, tracks */
+
+  /* Lines */
+  --border: #243140;
+  --border-soft: #1a242f;
+  --border-strong: #33475a;
+
+  /* Text */
+  --text: #c9d7e4;
+  --text-strong: #f0f6fb;
+  --muted: #8195a6;
+  --faint: #5b6e7f;
+
+  /* Brand accent — cyan→blue */
+  --accent: #36a6f2;
+  --accent-bright: #5cc3ff;
+  --accent-deep: #1b6fcc;
+  --accent-grad: linear-gradient(180deg, #4cb5ff 0%, #2479dd 100%);
+  --accent-grad-hover: linear-gradient(180deg, #5fc1ff 0%, #338ce9 100%);
+  --accent-soft: rgba(54, 166, 242, 0.14);
+  --accent-line: rgba(54, 166, 242, 0.55);
+  --accent-glow: rgba(54, 166, 242, 0.38);
+
+  /* States */
+  --green: #54d6a0;
+  --green-soft: rgba(84, 214, 160, 0.13);
+  --amber: #ffb13d;
+  --amber-soft: rgba(255, 177, 61, 0.14);
+  --amber-line: rgba(255, 177, 61, 0.5);
+  --red: #ff6b6b;
+  --red-soft: rgba(255, 107, 107, 0.13);
+  --red-line: rgba(255, 107, 107, 0.5);
+
+  /* Radii — crisp, never pill */
+  --r-xs: 3px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 9px;
+
+  /* Elevation */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 8px 24px -10px rgba(0, 0, 0, 0.65);
+  --shadow-pop: 0 14px 40px -14px rgba(0, 0, 0, 0.75);
+
+  /* Motion */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --content: 880px;
+  --font-display: "Bricolage Grotesque", "Hanken Grotesk", ui-sans-serif, sans-serif;
+  --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
 }
 
 * {
@@ -23,23 +95,65 @@ html {
 body {
   margin: 0;
   color: var(--text);
-  font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
-    "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-    sans-serif;
+  font-family: var(--font-body);
+  font-feature-settings: "ss01", "cv01";
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Layered atmosphere: a cool glow up top, fading into near-black slate. */
+  background:
+    radial-gradient(1100px 560px at 50% -160px, rgba(54, 166, 242, 0.12), transparent 62%),
+    radial-gradient(900px 520px at 100% -40px, rgba(36, 121, 221, 0.08), transparent 58%),
+    linear-gradient(180deg, #0d141d 0%, #0a0f15 100%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
 }
 
-@font-face {
-  font-family: "Nunito";
-  font-style: normal;
-  font-weight: 400;
-  src: local(""),
-    url("assets/fonts/nunito-v16-latin-regular.woff2") format("woff2");
+/* Faint film grain for depth (sits behind everything, ignores pointer). */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 #app {
+  position: relative;
+  z-index: 1;
   height: 100vh;
   overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+/* Tabular figures everywhere numbers matter — dates, counts, progress. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
+/* ---- Scrollbar (WebKit / Wails) ---- */
+#app::-webkit-scrollbar {
+  width: 13px;
+}
+#app::-webkit-scrollbar-track {
+  background: transparent;
+}
+#app::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 99px;
+  border: 4px solid transparent;
+  background-clip: padding-box;
+}
+#app::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+  background-clip: padding-box;
 }
 
 /* ---- Shared form controls ---- */
@@ -49,13 +163,20 @@ input[type="date"],
 input[type="number"],
 textarea {
   font: inherit;
-  color: var(--text);
-  background: var(--card);
+  color: var(--text-strong);
+  background: var(--inset);
   border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 0.5rem 0.65rem;
+  border-radius: var(--r-sm);
+  padding: 0.55rem 0.7rem;
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+input[type="text"]:hover,
+input[type="date"]:hover,
+input[type="number"]:hover,
+textarea:hover {
+  border-color: var(--border-strong);
 }
 
 input[type="text"]:focus,
@@ -63,72 +184,198 @@ input[type="date"]:focus,
 input[type="number"]:focus,
 textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+::placeholder {
+  color: var(--faint);
 }
 
 textarea {
   resize: vertical;
-  line-height: 1.4;
+  line-height: 1.45;
 }
+
+/* Make the native date/number controls legible on dark surfaces. */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
+  cursor: pointer;
+  opacity: 0.65;
+  transition: opacity 0.15s ease;
+}
+input[type="date"]:hover::-webkit-calendar-picker-indicator {
+  opacity: 1;
+}
+
+/* ---- Custom checkbox ---- */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  position: relative;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  background: var(--inset);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+input[type="checkbox"]:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+input[type="checkbox"]:checked {
+  background: var(--accent-grad);
+  border-color: var(--accent-bright);
+}
+input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1.5px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  transform-origin: center;
+  animation: check-pop 0.2s var(--ease-out);
+}
+input[type="checkbox"]:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+input[type="checkbox"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@keyframes check-pop {
+  from {
+    opacity: 0;
+    transform: rotate(45deg) scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(45deg) scale(1);
+  }
+}
+
+/* ---- Buttons ---- */
 
 .btn {
   font: inherit;
   font-weight: 600;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
+  letter-spacing: 0.01em;
   border: 1px solid transparent;
-  border-radius: 9px;
-  padding: 0.5rem 0.95rem;
+  border-radius: var(--r-sm);
+  padding: 0.55rem 1rem;
   cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease;
+  transition: transform 0.12s var(--ease), background 0.16s ease,
+    box-shadow 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
 .btn.primary {
-  background: var(--accent);
+  background: var(--accent-grad);
   color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 12, 30, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), var(--shadow-1);
 }
-
 .btn.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--accent-grad-hover);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 8px 18px -8px var(--accent-glow), 0 0 22px -6px var(--accent-glow);
+}
+.btn.primary:active:not(:disabled) {
+  transform: translateY(0);
+  filter: brightness(0.96);
 }
 
 .btn.ghost {
-  background: transparent;
+  background: var(--surface-2);
   border-color: var(--border);
   color: var(--text);
 }
-
 .btn.ghost:hover:not(:disabled) {
-  background: var(--chip);
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+  transform: translateY(-1px);
+}
+.btn.ghost:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .icon-btn {
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
   font-size: 0.95rem;
   line-height: 1;
-  padding: 0.3rem;
-  border-radius: 7px;
-  opacity: 0.7;
-  transition: background 0.15s ease, opacity 0.15s ease;
+  padding: 0.34rem;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  opacity: 0.85;
+  transition: background 0.15s ease, opacity 0.15s ease, color 0.15s ease,
+    border-color 0.15s ease, transform 0.12s var(--ease);
 }
-
 .icon-btn:hover:not(:disabled) {
-  background: var(--chip);
+  background: var(--surface-3);
+  border-color: var(--border);
+  color: var(--text-strong);
   opacity: 1;
 }
-
+.icon-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
 .icon-btn.small {
-  font-size: 1.1rem;
-  color: var(--muted);
+  font-size: 1.05rem;
+}
+.icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
-.icon-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
+/* ---- Entrance animations ---- */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Entrance reveal: all elements animate in together (no stagger). */
+.reveal {
+  opacity: 0;
+  animation: rise 0.5s var(--ease-out) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }

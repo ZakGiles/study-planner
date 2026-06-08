@@ -101,7 +101,7 @@
   }
 </script>
 
-<article class="card">
+<article class="card reveal">
   <header class="card-head">
     {#if editing}
       <div class="edit">
@@ -129,15 +129,15 @@
   {#if total > 0}
     <div class="progress-row">
       <div class="bar"><div class="fill" style="width:{progress}%"></div></div>
-      <span class="progress-label">{doneCount}/{total} done</span>
+      <span class="progress-label tnum">{doneCount}/{total}</span>
     </div>
     <ul class="sessions">
       {#each topic.sessions as s (s.id)}
         <li class="session {sessionState(s.date, s.done)}">
           <label class="chk">
             <input type="checkbox" checked={s.done} on:change={() => run(ToggleSession(topic.id, s.id))} disabled={busy} />
-            <span class="date">{formatDate(s.date)}</span>
-            <span class="rel">{s.done ? 'done' : relativeLabel(s.date)}</span>
+            <span class="date tnum">{formatDate(s.date)}</span>
+            <span class="rel tnum">{s.done ? 'done' : relativeLabel(s.date)}</span>
           </label>
           <button class="icon-btn small" title="Remove date" on:click={() => run(DeleteSession(topic.id, s.id))} disabled={busy}>×</button>
         </li>
@@ -148,7 +148,8 @@
   {/if}
 
   <div class="adder">
-    <div class="mode-toggle">
+    <span class="adder-label">Schedule dates</span>
+    <div class="seg">
       <button class:active={addMode === 'spaced'} on:click={() => (addMode = 'spaced')}>Spaced</button>
       <button class:active={addMode === 'manual'} on:click={() => (addMode = 'manual')}>Manual</button>
     </div>
@@ -166,7 +167,7 @@
         </label>
       </div>
 
-      <div class="curve-toggle">
+      <div class="seg curve">
         <button class:active={spacedCurve === 'fixed'} on:click={() => (spacedCurve = 'fixed')}>Fixed intervals</button>
         <button class:active={spacedCurve === 'log'} on:click={() => (spacedCurve = 'log')}>Logarithmic</button>
       </div>
@@ -199,9 +200,9 @@
       {/if}
 
       {#if preview.length}
-        <p class="preview">→ {preview.length} session{preview.length === 1 ? '' : 's'}: {formatDate(preview[0])}{preview.length > 1 ? ` … ${formatDate(preview[preview.length - 1])}` : ''}</p>
+        <p class="preview tnum">→ {preview.length} session{preview.length === 1 ? '' : 's'}: {formatDate(preview[0])}{preview.length > 1 ? ` … ${formatDate(preview[preview.length - 1])}` : ''}</p>
         {#if spacedCurve === 'log'}
-          <p class="preview muted">offsets: {uniqueOffsets.join(', ')} days</p>
+          <p class="preview muted tnum">offsets: {uniqueOffsets.join(', ')} days</p>
         {/if}
       {:else if spacedCurve === 'fixed'}
         <p class="preview muted">Enter day offsets, e.g. <code>0, 1, 3, 7, 14, 30</code></p>
@@ -214,12 +215,20 @@
 
 <style>
   .card {
-    background: var(--card);
+    position: relative;
+    background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 1rem 1.1rem;
-    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    border-radius: var(--r-lg);
+    padding: 1.1rem 1.2rem;
+    box-shadow: var(--shadow-1);
     text-align: left;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s var(--ease);
+  }
+
+  .card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-2);
+    transform: translateY(-2px);
   }
 
   .card-head {
@@ -231,15 +240,18 @@
 
   .title-block h3 {
     margin: 0;
-    font-size: 1.05rem;
-    color: var(--text);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.08rem;
+    letter-spacing: -0.01em;
+    color: var(--text-strong);
   }
 
   .desc {
-    margin: 0.25rem 0 0;
+    margin: 0.3rem 0 0;
     color: var(--muted);
-    font-size: 0.88rem;
-    line-height: 1.35;
+    font-size: 0.875rem;
+    line-height: 1.45;
     white-space: pre-wrap;
   }
 
@@ -252,38 +264,40 @@
   .progress-row {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
-    margin: 0.9rem 0 0.4rem;
+    gap: 0.7rem;
+    margin: 1rem 0 0.6rem;
   }
 
   .bar {
     flex: 1;
     height: 6px;
-    background: var(--border);
+    background: var(--inset);
+    border: 1px solid var(--border-soft);
     border-radius: 99px;
     overflow: hidden;
   }
 
   .fill {
     height: 100%;
-    background: var(--accent);
+    background: var(--accent-grad);
     border-radius: 99px;
-    transition: width 0.2s ease;
+    box-shadow: 0 0 12px -2px var(--accent-glow);
+    transition: width 0.4s var(--ease);
   }
 
   .progress-label {
-    font-size: 0.75rem;
+    font-size: 0.74rem;
     color: var(--muted);
     white-space: nowrap;
   }
 
   .sessions {
     list-style: none;
-    margin: 0.4rem 0 0;
+    margin: 0.5rem 0 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: 0.35rem;
   }
 
   .session {
@@ -291,47 +305,49 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    padding: 0.4rem 0.55rem;
-    border-radius: 9px;
-    border: 1px solid var(--border);
-    background: var(--chip);
+    padding: 0.45rem 0.5rem 0.45rem 0.6rem;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border-soft);
+    background: var(--surface-2);
+    border-left: 2px solid var(--border-strong);
+    transition: border-color 0.15s ease, background 0.15s ease;
   }
 
+  .session.upcoming {
+    border-left-color: var(--accent);
+  }
   .session.overdue {
-    border-color: #fcaca7;
-    background: #fef2f1;
+    border-color: var(--red-line);
+    border-left-color: var(--red);
+    background: var(--red-soft);
   }
   .session.today {
-    border-color: #fcd9a3;
-    background: #fff7ec;
+    border-color: var(--amber-line);
+    border-left-color: var(--amber);
+    background: var(--amber-soft);
   }
   .session.done {
-    opacity: 0.6;
+    opacity: 0.55;
+    border-left-color: var(--green);
   }
 
   .chk {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.55rem;
     cursor: pointer;
     flex: 1;
     min-width: 0;
   }
 
-  .chk input {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--accent);
-    cursor: pointer;
-  }
-
   .date {
     font-size: 0.86rem;
-    color: var(--text);
+    color: var(--text-strong);
   }
 
   .session.done .date {
     text-decoration: line-through;
+    color: var(--muted);
   }
 
   .rel {
@@ -343,70 +359,71 @@
   }
 
   .session.overdue .rel {
-    color: var(--danger);
+    color: var(--red);
   }
   .session.today .rel {
-    color: var(--warn);
+    color: var(--amber);
     font-weight: 600;
   }
 
   .empty-sessions {
-    margin: 0.8rem 0 0.2rem;
+    margin: 0.9rem 0 0.2rem;
     color: var(--muted);
     font-size: 0.85rem;
   }
 
+  /* ---- Date scheduler ---- */
   .adder {
-    margin-top: 0.9rem;
-    padding-top: 0.85rem;
-    border-top: 1px dashed var(--border);
+    margin-top: 1rem;
+    padding-top: 0.95rem;
+    border-top: 1px solid var(--border-soft);
   }
 
-  .mode-toggle {
+  .adder-label {
+    display: block;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin-bottom: 0.55rem;
+  }
+
+  /* Segmented control */
+  .seg {
     display: inline-flex;
-    background: var(--chip);
+    background: var(--inset);
     border: 1px solid var(--border);
-    border-radius: 9px;
+    border-radius: var(--r-sm);
     padding: 2px;
-    margin-bottom: 0.6rem;
+    gap: 2px;
   }
 
-  .mode-toggle button {
+  .seg.curve {
+    margin: 0.6rem 0;
+  }
+
+  .seg button {
     border: none;
     background: transparent;
     color: var(--muted);
-    padding: 0.3rem 0.8rem;
-    border-radius: 7px;
+    padding: 0.34rem 0.8rem;
+    border-radius: var(--r-xs);
     cursor: pointer;
-    font-size: 0.82rem;
+    font-family: var(--font-body);
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: color 0.15s ease, background 0.15s ease;
   }
 
-  .mode-toggle button.active {
-    background: var(--card);
+  .seg button:hover {
     color: var(--text);
-    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
   }
 
-  .curve-toggle {
-    display: inline-flex;
-    gap: 0.4rem;
-    margin-bottom: 0.6rem;
-  }
-
-  .curve-toggle button {
-    border: 1px solid var(--border);
-    background: var(--card);
-    color: var(--muted);
-    padding: 0.28rem 0.7rem;
-    border-radius: 99px;
-    cursor: pointer;
-    font-size: 0.78rem;
-  }
-
-  .curve-toggle button.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
+  .seg button.active {
+    background: var(--surface-3);
+    color: var(--text-strong);
+    box-shadow: var(--shadow-1);
   }
 
   .row {
@@ -414,23 +431,32 @@
     align-items: flex-end;
     gap: 0.5rem;
     flex-wrap: wrap;
+    margin-top: 0.55rem;
+  }
+
+  .seg + .row,
+  .adder > .seg:first-of-type + .row {
+    margin-top: 0.6rem;
   }
 
   .field {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
-    font-size: 0.72rem;
-    color: var(--muted);
+    gap: 0.25rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--faint);
   }
 
   .field.grow {
     flex: 1;
-    min-width: 140px;
+    min-width: 150px;
   }
 
   .field.num {
-    width: 88px;
+    width: 92px;
   }
 
   .field.num input {
@@ -438,7 +464,7 @@
   }
 
   .hint {
-    margin: 0.1rem 0 0;
+    margin: 0.4rem 0 0;
     font-size: 0.74rem;
     color: var(--muted);
   }
@@ -448,9 +474,9 @@
   }
 
   .preview {
-    margin: 0.5rem 0 0;
+    margin: 0.6rem 0 0;
     font-size: 0.78rem;
-    color: var(--accent);
+    color: var(--accent-bright);
   }
 
   .preview.muted {
@@ -458,15 +484,17 @@
   }
 
   .preview code {
-    background: var(--chip);
-    padding: 0 4px;
-    border-radius: 4px;
+    background: var(--inset);
+    border: 1px solid var(--border-soft);
+    padding: 0.05rem 0.3rem;
+    border-radius: var(--r-xs);
+    color: var(--text);
   }
 
   .edit {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: 0.5rem;
     width: 100%;
   }
 

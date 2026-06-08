@@ -112,25 +112,25 @@
 </script>
 
 <section class="calendar">
-  <div class="cal-head">
+  <div class="cal-head reveal">
     <div class="cal-nav">
       <button class="icon-btn nav" title="Previous month" on:click={prevMonth}>‹</button>
-      <h2>{MONTHS[viewMonth]} {viewYear}</h2>
+      <h2 class="tnum">{MONTHS[viewMonth]} {viewYear}</h2>
       <button class="icon-btn nav" title="Next month" on:click={nextMonth}>›</button>
     </div>
     <div class="cal-actions">
-      <span class="cal-count">{monthCount} session{monthCount === 1 ? '' : 's'}</span>
+      <span class="cal-count tnum">{monthCount} session{monthCount === 1 ? '' : 's'}</span>
       <button class="btn ghost" on:click={goToday}>Today</button>
     </div>
   </div>
 
-  <div class="grid">
+  <div class="grid reveal">
     {#each WEEKDAYS as wd}
       <div class="weekday">{wd}</div>
     {/each}
     {#each cells as cell (cell.iso)}
       <div class="cell" class:out={!cell.inMonth} class:today={cell.isToday}>
-        <span class="day-num">{cell.day}</span>
+        <span class="day-num tnum">{cell.day}</span>
         {#if cell.sessions.length}
           <div class="cell-sessions">
             {#each cell.sessions as s (s.sessionId)}
@@ -157,33 +157,35 @@
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
-    margin-bottom: 0.9rem;
+    margin-bottom: 1rem;
   }
 
   .cal-nav {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.5rem;
   }
 
   .cal-nav h2 {
     margin: 0;
-    font-size: 1.05rem;
-    color: var(--text);
-    min-width: 9.5rem;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.2rem;
+    letter-spacing: -0.01em;
+    color: var(--text-strong);
+    min-width: 10rem;
     text-align: center;
   }
 
   .icon-btn.nav {
-    font-size: 1.4rem;
-    color: var(--muted);
-    padding: 0.1rem 0.5rem;
+    font-size: 1.35rem;
+    padding: 0.1rem 0.55rem;
   }
 
   .cal-actions {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.85rem;
   }
 
   .cal-count {
@@ -197,53 +199,65 @@
     gap: 1px;
     background: var(--border);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--r-lg);
     overflow: hidden;
+    box-shadow: var(--shadow-1);
   }
 
   .weekday {
-    background: var(--chip);
+    background: var(--surface-2);
     color: var(--muted);
-    font-size: 0.72rem;
-    font-weight: 600;
+    font-size: 0.68rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.08em;
     text-align: center;
-    padding: 0.45rem 0;
+    padding: 0.5rem 0;
   }
 
   .cell {
-    background: var(--card);
-    min-height: 92px;
+    background: var(--surface);
+    min-height: 94px;
     padding: 0.3rem 0.35rem 0.4rem;
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    transition: background 0.14s ease;
+  }
+
+  .cell:hover {
+    background: var(--surface-2);
   }
 
   .cell.out {
-    background: var(--chip);
+    background: var(--inset);
+  }
+  .cell.out:hover {
+    background: var(--surface-2);
   }
 
   .cell.out .day-num {
-    opacity: 0.5;
+    opacity: 0.4;
   }
 
   .day-num {
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     color: var(--text);
     line-height: 1.5;
-    min-width: 1.5rem;
-    height: 1.5rem;
-    text-align: center;
+    min-width: 1.55rem;
+    height: 1.55rem;
+    display: grid;
+    place-items: center;
     align-self: flex-start;
+    border-radius: var(--r-sm);
   }
 
   .cell.today .day-num {
-    background: var(--accent);
+    background: var(--accent-grad);
     color: #fff;
-    border-radius: 99px;
     font-weight: 700;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25),
+      0 0 14px -2px var(--accent-glow);
   }
 
   .cell-sessions {
@@ -256,19 +270,21 @@
   .ev {
     font: inherit;
     font-size: 0.72rem;
+    font-weight: 600;
     text-align: left;
     border: 1px solid transparent;
-    border-radius: 6px;
-    padding: 0.1rem 0.32rem;
+    border-radius: var(--r-xs);
+    padding: 0.12rem 0.35rem;
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: opacity 0.15s ease;
+    transition: transform 0.12s var(--ease), filter 0.15s ease;
   }
 
   .ev:hover:not(:disabled) {
-    opacity: 0.82;
+    transform: translateX(1px);
+    filter: brightness(1.15);
   }
 
   .ev:disabled {
@@ -276,26 +292,26 @@
   }
 
   .ev.upcoming {
-    background: #eef0fd;
-    border-color: #d6dafc;
-    color: var(--accent);
+    background: var(--accent-soft);
+    border-color: var(--accent-line);
+    color: var(--accent-bright);
   }
 
   .ev.today {
-    background: #fff7ec;
-    border-color: #fcd9a3;
-    color: var(--warn);
+    background: var(--amber-soft);
+    border-color: var(--amber-line);
+    color: var(--amber);
   }
 
   .ev.overdue {
-    background: #fef2f1;
-    border-color: #fcaca7;
-    color: var(--danger);
+    background: var(--red-soft);
+    border-color: var(--red-line);
+    color: var(--red);
   }
 
   .ev.done {
-    background: var(--chip);
-    border-color: var(--border);
+    background: var(--surface-2);
+    border-color: var(--border-soft);
     color: var(--muted);
     text-decoration: line-through;
   }
