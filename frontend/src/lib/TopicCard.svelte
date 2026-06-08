@@ -268,23 +268,6 @@
     margin: 1rem 0 0.6rem;
   }
 
-  .bar {
-    flex: 1;
-    height: 6px;
-    background: var(--inset);
-    border: 1px solid var(--border-soft);
-    border-radius: 99px;
-    overflow: hidden;
-  }
-
-  .fill {
-    height: 100%;
-    background: var(--accent-grad);
-    border-radius: 99px;
-    box-shadow: 0 0 12px -2px var(--accent-glow);
-    transition: width 0.4s var(--ease);
-  }
-
   .progress-label {
     font-size: 0.74rem;
     color: var(--muted);
@@ -372,7 +355,6 @@
     font-size: 0.85rem;
   }
 
-  /* ---- Date scheduler ---- */
   .adder {
     margin-top: 1rem;
     padding-top: 0.95rem;
@@ -389,7 +371,6 @@
     margin-bottom: 0.55rem;
   }
 
-  /* Segmented control */
   .seg {
     display: inline-flex;
     background: var(--inset);

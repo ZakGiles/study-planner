@@ -1,10 +1,3 @@
-/* ============================================================================
-   Study Planner — design system
-   Dark "launcher / control panel" aesthetic: deep slate surfaces, a confident
-   cyan-blue accent, crisp small radii (never pill-rounded), tabular numerals,
-   and fast, restrained motion. Inspired by Steam's dark UI.
-   ========================================================================== */
-
 @font-face {
   font-family: "Hanken Grotesk";
   font-style: normal;
@@ -24,37 +17,30 @@
 :root {
   color-scheme: dark;
 
-  /* Surfaces — deep desaturated slate */
   --bg: #0b1118;
-  --surface: #141d27;       /* cards & panels */
-  --surface-2: #1b2631;     /* inputs, chips */
-  --surface-3: #243140;     /* hover / raised */
-  --inset: #0e151d;         /* sunken inputs, tracks */
+  --surface: #141d27;
+  --surface-2: #1b2631;
+  --surface-3: #243140;
+  --inset: #0e151d;
 
-  /* Lines */
   --border: #243140;
   --border-soft: #1a242f;
   --border-strong: #33475a;
 
-  /* Text */
   --text: #c9d7e4;
   --text-strong: #f0f6fb;
   --muted: #8195a6;
   --faint: #5b6e7f;
 
-  /* Brand accent — cyan→blue */
   --accent: #36a6f2;
   --accent-bright: #5cc3ff;
-  --accent-deep: #1b6fcc;
   --accent-grad: linear-gradient(180deg, #4cb5ff 0%, #2479dd 100%);
   --accent-grad-hover: linear-gradient(180deg, #5fc1ff 0%, #338ce9 100%);
   --accent-soft: rgba(54, 166, 242, 0.14);
   --accent-line: rgba(54, 166, 242, 0.55);
   --accent-glow: rgba(54, 166, 242, 0.38);
 
-  /* States */
   --green: #54d6a0;
-  --green-soft: rgba(84, 214, 160, 0.13);
   --amber: #ffb13d;
   --amber-soft: rgba(255, 177, 61, 0.14);
   --amber-line: rgba(255, 177, 61, 0.5);
@@ -62,18 +48,15 @@
   --red-soft: rgba(255, 107, 107, 0.13);
   --red-line: rgba(255, 107, 107, 0.5);
 
-  /* Radii — crisp, never pill */
   --r-xs: 3px;
   --r-sm: 4px;
   --r-md: 6px;
   --r-lg: 9px;
 
-  /* Elevation */
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-2: 0 8px 24px -10px rgba(0, 0, 0, 0.65);
   --shadow-pop: 0 14px 40px -14px rgba(0, 0, 0, 0.75);
 
-  /* Motion */
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -99,7 +82,6 @@ body {
   font-feature-settings: "ss01", "cv01";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* Layered atmosphere: a cool glow up top, fading into near-black slate. */
   background:
     radial-gradient(1100px 560px at 50% -160px, rgba(54, 166, 242, 0.12), transparent 62%),
     radial-gradient(900px 520px at 100% -40px, rgba(36, 121, 221, 0.08), transparent 58%),
@@ -108,7 +90,6 @@ body {
   background-repeat: no-repeat;
 }
 
-/* Faint film grain for depth (sits behind everything, ignores pointer). */
 body::before {
   content: "";
   position: fixed;
@@ -127,10 +108,13 @@ body::before {
   scrollbar-gutter: stable;
 }
 
-/* Tabular figures everywhere numbers matter — dates, counts, progress. */
 .tnum {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+}
+
+.muted {
+  color: var(--muted);
 }
 
 ::selection {
@@ -138,7 +122,6 @@ body::before {
   color: var(--text-strong);
 }
 
-/* ---- Scrollbar (WebKit / Wails) ---- */
 #app::-webkit-scrollbar {
   width: 13px;
 }
@@ -155,8 +138,6 @@ body::before {
   background: var(--border-strong);
   background-clip: padding-box;
 }
-
-/* ---- Shared form controls ---- */
 
 input[type="text"],
 input[type="date"],
@@ -197,7 +178,6 @@ textarea {
   line-height: 1.45;
 }
 
-/* Make the native date/number controls legible on dark surfaces. */
 input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(0.75);
   cursor: pointer;
@@ -208,7 +188,6 @@ input[type="date"]:hover::-webkit-calendar-picker-indicator {
   opacity: 1;
 }
 
-/* ---- Custom checkbox ---- */
 input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
@@ -261,8 +240,6 @@ input[type="checkbox"]:disabled {
     transform: rotate(45deg) scale(1);
   }
 }
-
-/* ---- Buttons ---- */
 
 .btn {
   font: inherit;
@@ -344,7 +321,23 @@ input[type="checkbox"]:disabled {
   cursor: not-allowed;
 }
 
-/* ---- Entrance animations ---- */
+.bar {
+  flex: 1;
+  height: 6px;
+  background: var(--inset);
+  border: 1px solid var(--border-soft);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  background: var(--accent-grad);
+  border-radius: 99px;
+  box-shadow: 0 0 12px -2px var(--accent-glow);
+  transition: width 0.4s var(--ease);
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -355,16 +348,7 @@ input[type="checkbox"]:disabled {
     transform: translateY(0);
   }
 }
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
 
-/* Entrance reveal: all elements animate in together (no stagger). */
 .reveal {
   opacity: 0;
   animation: rise 0.5s var(--ease-out) forwards;

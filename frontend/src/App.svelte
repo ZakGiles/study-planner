@@ -264,7 +264,6 @@
     min-height: 100%;
   }
 
-  /* ---- Top bar ---- */
   .topbar {
     position: sticky;
     top: 0;
@@ -393,7 +392,6 @@
     box-shadow: 0 0 12px -2px rgba(255, 107, 107, 0.6);
   }
 
-  /* ---- Main column ---- */
   main {
     max-width: var(--content);
     margin: 0 auto;
@@ -423,7 +421,6 @@
     }
   }
 
-  /* ---- Panels ---- */
   .panel {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -468,7 +465,6 @@
     align-self: flex-start;
   }
 
-  /* ---- Overview stat row ---- */
   .overview {
     display: flex;
     align-items: center;
@@ -510,29 +506,12 @@
     margin-bottom: 0.35rem;
   }
 
-  .bar {
-    height: 7px;
-    background: var(--inset);
-    border: 1px solid var(--border-soft);
-    border-radius: 99px;
-    overflow: hidden;
-  }
-
-  .fill {
-    height: 100%;
-    background: var(--accent-grad);
-    border-radius: 99px;
-    box-shadow: 0 0 12px -2px var(--accent-glow);
-    transition: width 0.4s var(--ease);
-  }
-
   .topic-list {
     display: flex;
     flex-direction: column;
     gap: 1rem;
   }
 
-  /* ---- Empty states ---- */
   .empty {
     text-align: center;
     padding: 3rem 1rem;
@@ -554,10 +533,6 @@
     color: var(--text-strong);
   }
 
-  .muted {
-    color: var(--muted);
-  }
-
   .empty .muted {
     font-size: 0.9rem;
     max-width: 44ch;
@@ -565,7 +540,6 @@
     line-height: 1.5;
   }
 
-  /* ---- Agenda ---- */
   .agenda-summary {
     display: flex;
     align-items: center;
@@ -613,7 +587,6 @@
     transition: border-color 0.16s ease, transform 0.16s var(--ease);
   }
 
-  /* Colored accent rail on the left edge. */
   .agenda-day::before {
     content: '';
     position: absolute;
@@ -690,7 +663,6 @@
     color: var(--text-strong);
   }
 
-  /* ---- Error toast ---- */
   .toast {
     position: fixed;
     left: 50%;
