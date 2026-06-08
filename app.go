@@ -163,9 +163,11 @@ func (a *App) AddSession(topicID, date string) ([]*Topic, error) {
 	return a.snapshot(), nil
 }
 
-// AddSpacedSessions generates a spaced-repetition schedule for a topic from a
-// start date and a set of day offsets. If intervals is empty the default
-// schedule (0, 1, 3, 7, 14, 30 days) is used.
+// AddSpacedSessions regenerates a topic's spaced-repetition schedule from a
+// start date and a set of day offsets. Any existing sessions (including their
+// done state) are cleared first, so the result is exactly the new schedule; the
+// frontend confirms this with the user before calling. If intervals is empty the
+// default schedule (0, 1, 3, 7, 14, 30 days) is used.
 func (a *App) AddSpacedSessions(topicID, startDate string, intervals []int) ([]*Topic, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
@@ -184,6 +186,7 @@ func (a *App) AddSpacedSessions(topicID, startDate string, intervals []int) ([]*
 	if t == nil {
 		return nil, errors.New("topic not found")
 	}
+	t.Sessions = []*Session{}
 	a.addDates(t, spacedDates(start, intervals))
 	if err := a.store.save(); err != nil {
 		return nil, err

@@ -3,10 +3,11 @@
   import type { main } from '../wailsjs/go/models';
   import { GetTopics, AddTopic, ToggleSession } from '../wailsjs/go/main/App.js';
   import TopicCard from './lib/TopicCard.svelte';
+  import Calendar from './lib/Calendar.svelte';
   import { formatDate, relativeLabel, daysFromToday } from './lib/dates';
 
   let topics: main.Topic[] = [];
-  let activeTab: 'topics' | 'agenda' = 'topics';
+  let activeTab: 'topics' | 'agenda' | 'calendar' = 'topics';
   let loading = true;
   let errorMsg = '';
   let errorTimer: ReturnType<typeof setTimeout>;
@@ -106,6 +107,7 @@
       <button class:active={activeTab === 'agenda'} on:click={() => (activeTab = 'agenda')}>
         Agenda{#if overdueCount}<span class="badge">{overdueCount}</span>{/if}
       </button>
+      <button class:active={activeTab === 'calendar'} on:click={() => (activeTab = 'calendar')}>Calendar</button>
     </nav>
   </header>
 
@@ -144,7 +146,7 @@
         {/each}
       </div>
     {/if}
-  {:else}
+  {:else if activeTab === 'agenda'}
     <!-- Agenda -->
     <section class="agenda">
       <div class="agenda-summary">
@@ -180,6 +182,9 @@
         </ul>
       {/if}
     </section>
+  {:else}
+    <!-- Calendar -->
+    <Calendar {topics} on:changed={onChanged} on:error={onError} />
   {/if}
 </main>
 
