@@ -26,6 +26,22 @@ export function GetTopics() {
   return window['go']['main']['App']['GetTopics']();
 }
 
+export function ReorderTopics(arg1) {
+  return window['go']['main']['App']['ReorderTopics'](arg1);
+}
+
+export function SetTopicArchived(arg1, arg2) {
+  return window['go']['main']['App']['SetTopicArchived'](arg1, arg2);
+}
+
+export function SetTopicColor(arg1, arg2) {
+  return window['go']['main']['App']['SetTopicColor'](arg1, arg2);
+}
+
+export function SetTopicTags(arg1, arg2) {
+  return window['go']['main']['App']['SetTopicTags'](arg1, arg2);
+}
+
 export function ToggleSession(arg1, arg2) {
   return window['go']['main']['App']['ToggleSession'](arg1, arg2);
 }

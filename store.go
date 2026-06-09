@@ -60,7 +60,11 @@ func (s *Store) load() error {
 		if t.Sessions == nil {
 			t.Sessions = []*Session{}
 		}
+		if t.Tags == nil {
+			t.Tags = []string{}
+		}
 	}
+	normalizeOrder(topics)
 	s.topics = topics
 	return nil
 }

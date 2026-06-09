@@ -3,10 +3,14 @@
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import type { main } from '../wailsjs/go/models';
-  import { GetTopics, AddTopic, ToggleSession } from '../wailsjs/go/main/App.js';
+  import { GetTopics, AddTopic, ToggleSession, ReorderTopics } from '../wailsjs/go/main/App.js';
   import TopicCard from './lib/TopicCard.svelte';
   import Calendar from './lib/Calendar.svelte';
   import { formatDate, relativeLabel, daysFromToday } from './lib/dates';
+  import { topicHex } from './lib/colors';
+  import { dndzone } from 'svelte-dnd-action';
+  import type { DndEvent } from 'svelte-dnd-action';
+  import { flip } from 'svelte/animate';
 
   let topics: main.Topic[] = [];
   let activeTab: 'topics' | 'agenda' | 'calendar' = 'topics';
@@ -64,20 +68,102 @@
     }
   }
 
-  // Flattened, date-sorted list of incomplete sessions for the agenda view.
-  type AgendaItem = { topicId: string; topicName: string; sessionId: string; date: string };
+  // Organisation: search text, selected tags and whether archived topics show.
+  let search = '';
+  let selectedTags: string[] = [];
+  let showArchived = false;
 
-  $: agenda = topics
+  function toggleTag(t: string) {
+    selectedTags = selectedTags.includes(t)
+      ? selectedTags.filter((x) => x !== t)
+      : [...selectedTags, t];
+  }
+
+  $: allTags = Array.from(new Set(topics.flatMap((t) => t.tags))).sort((a, b) => a.localeCompare(b));
+  $: archivedCount = topics.filter((t) => t.archived).length;
+
+  // A topic matches when the search text hits its name/description/tags and it
+  // carries at least one selected tag (when any tags are selected).
+  $: matches = (t: main.Topic) => {
+    const q = search.trim().toLowerCase();
+    const okSearch =
+      !q ||
+      t.name.toLowerCase().includes(q) ||
+      t.description.toLowerCase().includes(q) ||
+      t.tags.some((tag) => tag.toLowerCase().includes(q));
+    const okTags = selectedTags.length === 0 || t.tags.some((tag) => selectedTags.includes(tag));
+    return okSearch && okTags;
+  };
+
+  // Active (non-archived) topics that pass the filter feed every view; archived
+  // topics surface only in their own section.
+  $: visibleActive = topics.filter((t) => !t.archived && matches(t));
+  $: visibleArchived = topics.filter((t) => t.archived && matches(t));
+
+  // Drag-to-reorder operates on the unfiltered active list only.
+  $: hasFilter = search.trim() !== '' || selectedTags.length > 0;
+  let dndItems: main.Topic[] = [];
+  $: dndItems = visibleActive;
+
+  // Dragging is armed only while a card's drag handle is held (and never while
+  // filtered), so it never hijacks text selection inside a card.
+  let dragDisabled = true;
+  function armDrag() {
+    if (!hasFilter) dragDisabled = false;
+  }
+  function disarmDrag() {
+    dragDisabled = true;
+  }
+
+  function handleConsider(e: CustomEvent<DndEvent<main.Topic>>) {
+    dndItems = e.detail.items;
+  }
+  async function handleFinalize(e: CustomEvent<DndEvent<main.Topic>>) {
+    dndItems = e.detail.items;
+    dragDisabled = true;
+    try {
+      topics = await ReorderTopics(dndItems.map((t) => t.id));
+    } catch (err) {
+      dndItems = visibleActive; // revert the optimistic order
+      showError(String(err));
+    }
+  }
+
+  // Attach svelte-dnd-action's custom events imperatively so its non-standard
+  // element events don't need to be typed through svelte-check.
+  function dndEvents(
+    node: HTMLElement,
+    handlers: {
+      consider: (e: CustomEvent<DndEvent<main.Topic>>) => void;
+      finalize: (e: CustomEvent<DndEvent<main.Topic>>) => void;
+    }
+  ) {
+    const onConsider = (e: Event) => handlers.consider(e as CustomEvent<DndEvent<main.Topic>>);
+    const onFinalize = (e: Event) => handlers.finalize(e as CustomEvent<DndEvent<main.Topic>>);
+    node.addEventListener('consider', onConsider);
+    node.addEventListener('finalize', onFinalize);
+    return {
+      destroy() {
+        node.removeEventListener('consider', onConsider);
+        node.removeEventListener('finalize', onFinalize);
+      },
+    };
+  }
+
+  // Flattened, date-sorted list of incomplete sessions for the agenda view.
+  type AgendaItem = { topicId: string; topicName: string; sessionId: string; date: string; topicColor: string };
+
+  $: agenda = visibleActive
     .flatMap((t) =>
       t.sessions
         .filter((s) => !s.done)
-        .map((s) => ({ topicId: t.id, topicName: t.name, sessionId: s.id, date: s.date }))
+        .map((s) => ({ topicId: t.id, topicName: t.name, sessionId: s.id, date: s.date, topicColor: t.color }))
     )
     .sort((a, b) => a.date.localeCompare(b.date)) as AgendaItem[];
 
   $: overdueCount = agenda.filter((a) => daysFromToday(a.date) < 0).length;
-  $: totalSessions = topics.reduce((n, t) => n + t.sessions.length, 0);
-  $: doneSessions = topics.reduce((n, t) => n + t.sessions.filter((s) => s.done).length, 0);
+  $: totalSessions = visibleActive.reduce((n, t) => n + t.sessions.length, 0);
+  $: doneSessions = visibleActive.reduce((n, t) => n + t.sessions.filter((s) => s.done).length, 0);
   $: overallPct = totalSessions ? Math.round((doneSessions / totalSessions) * 100) : 0;
 
   // Group agenda items by date for display.
@@ -178,10 +264,31 @@
                 </p>
               </div>
             {:else}
+              <div class="toolbar reveal">
+                <div class="search">
+                  <input type="text" bind:value={search} placeholder="Search topics…" />
+                  {#if search}
+                    <button class="search-clear" on:click={() => (search = '')} aria-label="Clear search">×</button>
+                  {/if}
+                </div>
+                {#if allTags.length || archivedCount}
+                  <div class="filters">
+                    {#each allTags as t}
+                      <button class="filter-chip" class:active={selectedTags.includes(t)} on:click={() => toggleTag(t)}>{t}</button>
+                    {/each}
+                    {#if archivedCount}
+                      <button class="filter-chip archive-toggle" class:active={showArchived} on:click={() => (showArchived = !showArchived)}>
+                        {showArchived ? 'Hide' : 'Show'} archived · {archivedCount}
+                      </button>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+
               <div class="overview reveal">
                 <div class="overview-stat">
-                  <span class="stat-num tnum">{topics.length}</span>
-                  <span class="stat-label">topic{topics.length === 1 ? '' : 's'}</span>
+                  <span class="stat-num tnum">{visibleActive.length}</span>
+                  <span class="stat-label">topic{visibleActive.length === 1 ? '' : 's'}</span>
                 </div>
                 <div class="overview-bar">
                   <div class="overview-bar-head">
@@ -193,11 +300,49 @@
                   </div>
                 </div>
               </div>
-              <div class="topic-list">
-                {#each topics as topic (topic.id)}
-                  <TopicCard {topic} on:changed={onChanged} on:error={onError} />
-                {/each}
-              </div>
+
+              {#if visibleActive.length}
+                <div
+                  class="topic-list"
+                  use:dndzone={{ items: dndItems, flipDurationMs: 180, dragDisabled, dropTargetStyle: {} }}
+                  use:dndEvents={{ consider: handleConsider, finalize: handleFinalize }}
+                >
+                  {#each dndItems as topic (topic.id)}
+                    <div animate:flip={{ duration: 180 }}>
+                      <TopicCard
+                        {topic}
+                        {allTags}
+                        draggable={!hasFilter}
+                        on:changed={onChanged}
+                        on:error={onError}
+                        on:arm={armDrag}
+                        on:disarm={disarmDrag}
+                      />
+                    </div>
+                  {/each}
+                </div>
+              {:else}
+                <div class="empty">
+                  {#if hasFilter}
+                    <p class="empty-title">No matches</p>
+                    <p class="muted">No active topics match your search or filters.</p>
+                  {:else}
+                    <p class="empty-title">All topics archived</p>
+                    <p class="muted">Every topic is archived — use “Show archived” to see them.</p>
+                  {/if}
+                </div>
+              {/if}
+
+              {#if showArchived && visibleArchived.length}
+                <div class="archived-block">
+                  <h2 class="section-label">Archived</h2>
+                  <div class="topic-list">
+                    {#each visibleArchived as topic (topic.id)}
+                      <TopicCard {topic} {allTags} on:changed={onChanged} on:error={onError} />
+                    {/each}
+                  </div>
+                </div>
+              {/if}
             {/if}
           {:else if activeTab === 'agenda'}
             <section class="agenda">
@@ -233,6 +378,7 @@
                                 type="checkbox"
                                 on:change={() => toggleFromAgenda(item.topicId, item.sessionId)}
                               />
+                              <span class="topic-dot" style="--topic:{topicHex(item.topicColor)}"></span>
                               <span>{item.topicName}</span>
                             </label>
                           </li>
@@ -244,7 +390,7 @@
               {/if}
             </section>
           {:else}
-            <Calendar {topics} on:changed={onChanged} on:error={onError} />
+            <Calendar topics={visibleActive} on:changed={onChanged} on:error={onError} />
           {/if}
         </div>
       {/key}
@@ -512,6 +658,84 @@
     gap: 1rem;
   }
 
+  .toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-bottom: 1.1rem;
+  }
+
+  .search {
+    position: relative;
+    display: flex;
+  }
+  .search input {
+    width: 100%;
+    padding-right: 2rem;
+  }
+  .search-clear {
+    position: absolute;
+    right: 0.35rem;
+    top: 50%;
+    transform: translateY(-50%);
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1.15rem;
+    line-height: 1;
+    padding: 0.15rem 0.3rem;
+    border-radius: var(--r-xs);
+  }
+  .search-clear:hover {
+    color: var(--text-strong);
+  }
+
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .filter-chip {
+    font-family: var(--font-body);
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 0.22rem 0.6rem;
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+  .filter-chip:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .filter-chip.active {
+    color: #fff;
+    background: var(--accent-grad);
+    border-color: var(--accent-bright);
+  }
+  .archive-toggle {
+    margin-left: auto;
+  }
+
+  .archived-block {
+    margin-top: 1.6rem;
+  }
+  .section-label {
+    margin: 0 0 0.7rem;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
   .empty {
     text-align: center;
     padding: 3rem 1rem;
@@ -661,6 +885,15 @@
   }
   .agenda-item label:hover {
     color: var(--text-strong);
+  }
+
+  .topic-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--topic);
+    flex: 0 0 auto;
+    box-shadow: 0 0 8px -1px var(--topic);
   }
 
   .toast {

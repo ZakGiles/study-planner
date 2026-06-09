@@ -20,6 +20,10 @@ export namespace main {
 	    id: string;
 	    name: string;
 	    description: string;
+	    color: string;
+	    tags: string[];
+	    archived: boolean;
+	    order: number;
 	    // Go type: time
 	    createdAt: any;
 	    sessions: Session[];
@@ -33,6 +37,10 @@ export namespace main {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.description = source["description"];
+	        this.color = source["color"];
+	        this.tags = source["tags"];
+	        this.archived = source["archived"];
+	        this.order = source["order"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.sessions = this.convertValues(source["sessions"], Session);
 	    }
