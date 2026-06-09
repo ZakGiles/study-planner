@@ -53,6 +53,9 @@ func (a *App) snapshot() []*Topic {
 		sortSessions(t.Sessions)
 	}
 	sort.SliceStable(topics, func(i, j int) bool {
+		if topics[i].Order != topics[j].Order {
+			return topics[i].Order < topics[j].Order
+		}
 		return topics[i].CreatedAt.Before(topics[j].CreatedAt)
 	})
 	return topics
@@ -83,6 +86,9 @@ func (a *App) AddTopic(name, description string) ([]*Topic, error) {
 		ID:          uuid.NewString(),
 		Name:        name,
 		Description: strings.TrimSpace(description),
+		Color:       TopicColors[len(a.store.topics)%len(TopicColors)],
+		Tags:        []string{},
+		Order:       nextOrder(a.store.topics),
 		CreatedAt:   time.Now(),
 		Sessions:    []*Session{},
 	})
@@ -109,6 +115,97 @@ func (a *App) UpdateTopic(id, name, description string) ([]*Topic, error) {
 	}
 	t.Name = name
 	t.Description = strings.TrimSpace(description)
+	if err := a.store.save(); err != nil {
+		return nil, err
+	}
+	return a.snapshot(), nil
+}
+
+// SetTopicColor sets a topic's palette colour. An empty string resets it to the
+// default accent; any other value must be a known palette token.
+func (a *App) SetTopicColor(id, color string) ([]*Topic, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	if !validColor(color) {
+		return nil, errors.New("unknown colour")
+	}
+	a.store.mu.Lock()
+	defer a.store.mu.Unlock()
+	t := a.store.find(id)
+	if t == nil {
+		return nil, errors.New("topic not found")
+	}
+	t.Color = color
+	if err := a.store.save(); err != nil {
+		return nil, err
+	}
+	return a.snapshot(), nil
+}
+
+// SetTopicTags replaces a topic's tags with a normalized version of the input.
+func (a *App) SetTopicTags(id string, tags []string) ([]*Topic, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	a.store.mu.Lock()
+	defer a.store.mu.Unlock()
+	t := a.store.find(id)
+	if t == nil {
+		return nil, errors.New("topic not found")
+	}
+	t.Tags = normalizeTags(tags)
+	if err := a.store.save(); err != nil {
+		return nil, err
+	}
+	return a.snapshot(), nil
+}
+
+// SetTopicArchived archives or unarchives a topic.
+func (a *App) SetTopicArchived(id string, archived bool) ([]*Topic, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	a.store.mu.Lock()
+	defer a.store.mu.Unlock()
+	t := a.store.find(id)
+	if t == nil {
+		return nil, errors.New("topic not found")
+	}
+	t.Archived = archived
+	if err := a.store.save(); err != nil {
+		return nil, err
+	}
+	return a.snapshot(), nil
+}
+
+// ReorderTopics applies a new manual order. orderedIDs lists topic ids in the
+// desired order; any topic not included keeps its relative order after them
+// (e.g. archived topics that are hidden from the reorderable list).
+func (a *App) ReorderTopics(orderedIDs []string) ([]*Topic, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	a.store.mu.Lock()
+	defer a.store.mu.Unlock()
+	pos := make(map[string]int, len(orderedIDs))
+	for i, id := range orderedIDs {
+		pos[id] = i
+	}
+	// Establish the current relative order first so unlisted topics keep it.
+	sort.SliceStable(a.store.topics, func(i, j int) bool {
+		return a.store.topics[i].Order < a.store.topics[j].Order
+	})
+	next := len(orderedIDs)
+	for _, t := range a.store.topics {
+		if p, ok := pos[t.ID]; ok {
+			t.Order = p
+		} else {
+			t.Order = next
+			next++
+		}
+	}
+	normalizeOrder(a.store.topics)
 	if err := a.store.save(); err != nil {
 		return nil, err
 	}

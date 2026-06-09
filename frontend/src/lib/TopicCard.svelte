@@ -8,6 +8,9 @@
     DeleteTopic,
     ToggleSession,
     UpdateTopic,
+    SetTopicColor,
+    SetTopicTags,
+    SetTopicArchived,
   } from '../../wailsjs/go/main/App.js';
   import {
     formatDate,
@@ -18,17 +21,35 @@
     logOffsets,
     spacedPreview,
   } from './dates';
+  import { TOPIC_COLORS, topicHex } from './colors';
 
   export let topic: main.Topic;
+  export let allTags: string[] = [];
+  export let draggable = false;
 
-  const dispatch = createEventDispatcher<{ changed: main.Topic[]; error: string }>();
+  const dispatch = createEventDispatcher<{
+    changed: main.Topic[];
+    error: string;
+    arm: void;
+    disarm: void;
+  }>();
 
   let busy = false;
+  let showColors = false;
+
+  $: hex = topicHex(topic.color);
+
+  async function pickColor(token: string) {
+    showColors = false;
+    await run(SetTopicColor(topic.id, token));
+  }
 
   // Editing the topic name/description.
   let editing = false;
   let editName = '';
   let editDescription = '';
+  let editTags: string[] = [];
+  let tagDraft = '';
 
   // Adding study dates.
   let addMode: 'manual' | 'spaced' = 'spaced';
@@ -67,13 +88,43 @@
   function startEdit() {
     editName = topic.name;
     editDescription = topic.description;
+    editTags = [...topic.tags];
+    tagDraft = '';
     editing = true;
   }
 
   async function saveEdit() {
     if (!editName.trim()) return;
-    await run(UpdateTopic(topic.id, editName, editDescription));
-    editing = false;
+    addTag();
+    busy = true;
+    try {
+      await UpdateTopic(topic.id, editName, editDescription);
+      dispatch('changed', await SetTopicTags(topic.id, editTags));
+      editing = false;
+    } catch (e) {
+      dispatch('error', String(e));
+    } finally {
+      busy = false;
+    }
+  }
+
+  function addTag() {
+    const t = tagDraft.trim();
+    if (t && !editTags.some((x) => x.toLowerCase() === t.toLowerCase())) {
+      editTags = [...editTags, t];
+    }
+    tagDraft = '';
+  }
+  function removeTag(t: string) {
+    editTags = editTags.filter((x) => x !== t);
+  }
+  function tagKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addTag();
+    } else if (e.key === 'Backspace' && tagDraft === '' && editTags.length) {
+      editTags = editTags.slice(0, -1);
+    }
   }
 
   async function addManual() {
@@ -101,12 +152,32 @@
   }
 </script>
 
-<article class="card reveal">
+<article class="card reveal" class:archived={topic.archived} style="--topic:{hex}">
   <header class="card-head">
     {#if editing}
       <div class="edit">
         <input class="edit-name" bind:value={editName} placeholder="Topic name" />
         <textarea class="edit-desc" bind:value={editDescription} rows="2" placeholder="Description"></textarea>
+        <div class="tag-edit">
+          {#if editTags.length}
+            <div class="tag-chips">
+              {#each editTags as t}
+                <span class="tag removable">{t}<button type="button" class="tag-x" on:click={() => removeTag(t)} aria-label="Remove {t}">×</button></span>
+              {/each}
+            </div>
+          {/if}
+          <input
+            type="text"
+            bind:value={tagDraft}
+            on:keydown={tagKeydown}
+            on:blur={addTag}
+            list="alltags-{topic.id}"
+            placeholder="Add tags — press Enter"
+          />
+          <datalist id="alltags-{topic.id}">
+            {#each allTags as t}<option value={t}></option>{/each}
+          </datalist>
+        </div>
         <div class="edit-actions">
           <button class="btn primary" on:click={saveEdit} disabled={busy || !editName.trim()}>Save</button>
           <button class="btn ghost" on:click={() => (editing = false)} disabled={busy}>Cancel</button>
@@ -118,13 +189,52 @@
         {#if topic.description}
           <p class="desc">{topic.description}</p>
         {/if}
+        {#if topic.tags.length}
+          <div class="tags">
+            {#each topic.tags as t}<span class="tag">{t}</span>{/each}
+          </div>
+        {/if}
       </div>
       <div class="head-actions">
+        {#if draggable}
+          <button
+            class="icon-btn handle"
+            title="Drag to reorder"
+            aria-label="Drag to reorder"
+            on:mousedown={() => dispatch('arm')}
+            on:touchstart={() => dispatch('arm')}
+            on:mouseup={() => dispatch('disarm')}
+          >
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true">
+              <circle cx="6" cy="4" r="1.3" /><circle cx="10" cy="4" r="1.3" />
+              <circle cx="6" cy="8" r="1.3" /><circle cx="10" cy="8" r="1.3" />
+              <circle cx="6" cy="12" r="1.3" /><circle cx="10" cy="12" r="1.3" />
+            </svg>
+          </button>
+        {/if}
+        <button class="icon-btn swatch" title="Topic colour" on:click={() => (showColors = !showColors)} disabled={busy}><span class="swatch-dot"></span></button>
+        <button class="icon-btn" title={topic.archived ? 'Restore topic' : 'Archive topic'} on:click={() => run(SetTopicArchived(topic.id, !topic.archived))} disabled={busy}>{topic.archived ? '↩️' : '📦'}</button>
         <button class="icon-btn" title="Edit topic" on:click={startEdit} disabled={busy}>✏️</button>
         <button class="icon-btn" title="Delete topic" on:click={() => run(DeleteTopic(topic.id))} disabled={busy}>🗑️</button>
       </div>
     {/if}
   </header>
+
+  {#if showColors}
+    <div class="swatches">
+      {#each TOPIC_COLORS as c}
+        <button
+          class="swatch-opt"
+          class:active={topic.color === c.token}
+          style="--topic:{c.hex}"
+          title={c.label}
+          aria-label={c.label}
+          on:click={() => pickColor(c.token)}
+          disabled={busy}
+        ></button>
+      {/each}
+    </div>
+  {/if}
 
   {#if total > 0}
     <div class="progress-row">
@@ -231,6 +341,55 @@
     transform: translateY(-2px);
   }
 
+  .card.archived {
+    opacity: 0.6;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    border-radius: var(--r-lg) 0 0 var(--r-lg);
+    background: var(--topic);
+    opacity: 0.9;
+  }
+
+  .swatch-dot {
+    display: block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--topic);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  }
+
+  .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.2rem 0 0.4rem;
+  }
+
+  .swatch-opt {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--topic);
+    cursor: pointer;
+    transition: transform 0.12s var(--ease), box-shadow 0.15s ease;
+  }
+  .swatch-opt:hover {
+    transform: scale(1.12);
+  }
+  .swatch-opt.active {
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--topic);
+  }
+
   .card-head {
     display: flex;
     align-items: flex-start;
@@ -255,10 +414,67 @@
     white-space: pre-wrap;
   }
 
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.5rem;
+  }
+
+  .tag {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 0.1rem 0.45rem;
+  }
+
+  .tag.removable {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--text);
+  }
+
+  .tag-x {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0;
+    font-size: 0.95rem;
+    line-height: 1;
+  }
+  .tag-x:hover {
+    color: var(--red);
+  }
+
+  .tag-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .tag-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+
   .head-actions {
     display: flex;
     gap: 0.25rem;
     flex-shrink: 0;
+  }
+
+  .handle {
+    cursor: grab;
+    touch-action: none;
+  }
+  .handle:active {
+    cursor: grabbing;
   }
 
   .progress-row {

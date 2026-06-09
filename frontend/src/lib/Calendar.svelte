@@ -3,6 +3,7 @@
   import type { main } from '../../wailsjs/go/models';
   import { ToggleSession } from '../../wailsjs/go/main/App.js';
   import { parseDate, toISO, todayISO, daysFromToday, relativeLabel } from './dates';
+  import { topicHex } from './colors';
 
   export let topics: main.Topic[] = [];
 
@@ -21,7 +22,7 @@
 
   let busy = false;
 
-  type DaySession = { topicId: string; topicName: string; sessionId: string; date: string; done: boolean };
+  type DaySession = { topicId: string; topicName: string; sessionId: string; date: string; done: boolean; color: string };
 
   // Index every session by its date so each day cell is a cheap lookup.
   $: byDate = (() => {
@@ -29,7 +30,7 @@
     for (const t of topics) {
       for (const s of t.sessions) {
         const list = m.get(s.date) ?? [];
-        list.push({ topicId: t.id, topicName: t.name, sessionId: s.id, date: s.date, done: s.done });
+        list.push({ topicId: t.id, topicName: t.name, sessionId: s.id, date: s.date, done: s.done, color: t.color });
         m.set(s.date, list);
       }
     }
@@ -136,6 +137,7 @@
             {#each cell.sessions as s (s.sessionId)}
               <button
                 class="ev {sessionClass(s.date, s.done)}"
+                style="--topic:{topicHex(s.color)}"
                 title={`${s.topicName} — ${s.done ? 'done' : relativeLabel(s.date)} (click to toggle)`}
                 on:click={() => toggle(s)}
                 disabled={busy}
@@ -272,13 +274,16 @@
     font-size: 0.72rem;
     font-weight: 600;
     text-align: left;
-    border: 1px solid transparent;
+    border: 1px solid;
     border-radius: var(--r-xs);
     padding: 0.12rem 0.35rem;
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    background: color-mix(in srgb, var(--topic) 16%, transparent);
+    border-color: color-mix(in srgb, var(--topic) 45%, transparent);
+    color: color-mix(in srgb, var(--topic) 78%, white);
     transition: transform 0.12s var(--ease), filter 0.15s ease;
   }
 
@@ -291,28 +296,17 @@
     cursor: not-allowed;
   }
 
-  .ev.upcoming {
-    background: var(--accent-soft);
-    border-color: var(--accent-line);
-    color: var(--accent-bright);
+  .ev.overdue {
+    box-shadow: inset 3px 0 0 var(--red);
   }
 
   .ev.today {
-    background: var(--amber-soft);
-    border-color: var(--amber-line);
-    color: var(--amber);
-  }
-
-  .ev.overdue {
-    background: var(--red-soft);
-    border-color: var(--red-line);
-    color: var(--red);
+    box-shadow: inset 3px 0 0 var(--amber);
+    font-weight: 700;
   }
 
   .ev.done {
-    background: var(--surface-2);
-    border-color: var(--border-soft);
-    color: var(--muted);
+    opacity: 0.5;
     text-decoration: line-through;
   }
 </style>

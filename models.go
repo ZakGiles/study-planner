@@ -2,6 +2,7 @@ package main
 
 import (
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -14,8 +15,84 @@ type Topic struct {
 	ID          string     `json:"id"`
 	Name        string     `json:"name"`
 	Description string     `json:"description"`
+	Color       string     `json:"color"`    // palette token; "" = default
+	Tags        []string   `json:"tags"`
+	Archived    bool       `json:"archived"`
+	Order       int        `json:"order"` // manual sort position
 	CreatedAt   time.Time  `json:"createdAt"`
 	Sessions    []*Session `json:"sessions"`
+}
+
+// TopicColors are the palette tokens a topic may use; the frontend maps each to a
+// concrete colour. New topics cycle through this list so they start out distinct.
+var TopicColors = []string{"blue", "violet", "emerald", "amber", "rose", "cyan", "orange", "slate"}
+
+// validColor reports whether c is a known palette token. The empty string is
+// allowed and means "use the default accent".
+func validColor(c string) bool {
+	if c == "" {
+		return true
+	}
+	for _, t := range TopicColors {
+		if t == c {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeTags trims, drops empties and de-duplicates tags case-insensitively
+// (keeping the first-seen casing), capping both the count and each tag's length.
+func normalizeTags(tags []string) []string {
+	const maxTags, maxLen = 12, 30
+	out := make([]string, 0, len(tags))
+	seen := make(map[string]struct{}, len(tags))
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if r := []rune(t); len(r) > maxLen {
+			t = string(r[:maxLen])
+		}
+		key := strings.ToLower(t)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, t)
+		if len(out) >= maxTags {
+			break
+		}
+	}
+	return out
+}
+
+// normalizeOrder sorts topics by their existing Order (creation time breaks
+// ties) and reassigns a contiguous 0..n-1 Order. This migrates legacy data
+// (all-zero Order falls back to creation order) and compacts gaps left by deletes.
+func normalizeOrder(topics []*Topic) {
+	sort.SliceStable(topics, func(i, j int) bool {
+		if topics[i].Order != topics[j].Order {
+			return topics[i].Order < topics[j].Order
+		}
+		return topics[i].CreatedAt.Before(topics[j].CreatedAt)
+	})
+	for i, t := range topics {
+		t.Order = i
+	}
+}
+
+// nextOrder returns an Order that sorts after every existing topic, even when
+// deletions have left gaps in the sequence (so len() can't be used).
+func nextOrder(topics []*Topic) int {
+	next := 0
+	for _, t := range topics {
+		if t.Order >= next {
+			next = t.Order + 1
+		}
+	}
+	return next
 }
 
 // Session is a single planned study date for a topic.
