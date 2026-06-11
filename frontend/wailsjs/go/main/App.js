@@ -38,14 +38,10 @@ export function SetTopicColor(arg1, arg2) {
   return window['go']['main']['App']['SetTopicColor'](arg1, arg2);
 }
 
-export function SetTopicTags(arg1, arg2) {
-  return window['go']['main']['App']['SetTopicTags'](arg1, arg2);
-}
-
 export function ToggleSession(arg1, arg2) {
   return window['go']['main']['App']['ToggleSession'](arg1, arg2);
 }
 
-export function UpdateTopic(arg1, arg2, arg3) {
-  return window['go']['main']['App']['UpdateTopic'](arg1, arg2, arg3);
+export function UpdateTopic(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateTopic'](arg1, arg2, arg3, arg4);
 }

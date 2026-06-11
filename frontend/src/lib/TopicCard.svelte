@@ -9,13 +9,12 @@
     ToggleSession,
     UpdateTopic,
     SetTopicColor,
-    SetTopicTags,
     SetTopicArchived,
   } from '../../wailsjs/go/main/App.js';
   import {
     formatDate,
     relativeLabel,
-    daysFromToday,
+    sessionStatus,
     todayISO,
     parseIntervals,
     logOffsets,
@@ -74,12 +73,14 @@
   $: total = topic.sessions.length;
   $: progress = total ? Math.round((doneCount / total) * 100) : 0;
 
-  async function run(p: Promise<main.Topic[]>) {
+  async function run(p: Promise<main.Topic[]>): Promise<boolean> {
     busy = true;
     try {
       dispatch('changed', await p);
+      return true;
     } catch (e) {
       dispatch('error', String(e));
+      return false;
     } finally {
       busy = false;
     }
@@ -96,16 +97,7 @@
   async function saveEdit() {
     if (!editName.trim()) return;
     addTag();
-    busy = true;
-    try {
-      await UpdateTopic(topic.id, editName, editDescription);
-      dispatch('changed', await SetTopicTags(topic.id, editTags));
-      editing = false;
-    } catch (e) {
-      dispatch('error', String(e));
-    } finally {
-      busy = false;
-    }
+    if (await run(UpdateTopic(topic.id, editName, editDescription, editTags))) editing = false;
   }
 
   function addTag() {
@@ -141,14 +133,6 @@
       if (!ok) return;
     }
     await run(AddSpacedSessions(topic.id, spacedStart, offsets));
-  }
-
-  function sessionState(date: string, done: boolean): string {
-    if (done) return 'done';
-    const n = daysFromToday(date);
-    if (n < 0) return 'overdue';
-    if (n === 0) return 'today';
-    return 'upcoming';
   }
 </script>
 
@@ -243,7 +227,7 @@
     </div>
     <ul class="sessions">
       {#each topic.sessions as s (s.id)}
-        <li class="session {sessionState(s.date, s.done)}">
+        <li class="session {sessionStatus(s.date, s.done)}">
           <label class="chk">
             <input type="checkbox" checked={s.done} on:change={() => run(ToggleSession(topic.id, s.id))} disabled={busy} />
             <span class="date tnum">{formatDate(s.date)}</span>

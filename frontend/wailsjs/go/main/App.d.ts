@@ -20,8 +20,6 @@ export function SetTopicArchived(arg1:string,arg2:boolean):Promise<Array<main.To
 
 export function SetTopicColor(arg1:string,arg2:string):Promise<Array<main.Topic>>;
 
-export function SetTopicTags(arg1:string,arg2:Array<string>):Promise<Array<main.Topic>>;
-
 export function ToggleSession(arg1:string,arg2:string):Promise<Array<main.Topic>>;
 
-export function UpdateTopic(arg1:string,arg2:string,arg3:string):Promise<Array<main.Topic>>;
+export function UpdateTopic(arg1:string,arg2:string,arg3:string,arg4:Array<string>):Promise<Array<main.Topic>>;

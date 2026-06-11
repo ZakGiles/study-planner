@@ -44,6 +44,16 @@ export function relativeLabel(s: string): string {
   return `in ${n} days`;
 }
 
+// sessionStatus classifies a session for styling: done wins, otherwise the
+// date is overdue, today or upcoming.
+export function sessionStatus(date: string, done = false): 'done' | 'overdue' | 'today' | 'upcoming' {
+  if (done) return 'done';
+  const n = daysFromToday(date);
+  if (n < 0) return 'overdue';
+  if (n === 0) return 'today';
+  return 'upcoming';
+}
+
 // parseIntervals turns "0, 1, 3, 7" into [0, 1, 3, 7], ignoring junk.
 export function parseIntervals(s: string): number[] {
   return s
