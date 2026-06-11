@@ -6,7 +6,7 @@
   import { GetTopics, AddTopic, ToggleSession, ReorderTopics } from '../wailsjs/go/main/App.js';
   import TopicCard from './lib/TopicCard.svelte';
   import Calendar from './lib/Calendar.svelte';
-  import { formatDate, relativeLabel, daysFromToday } from './lib/dates';
+  import { formatDate, relativeLabel, daysFromToday, sessionStatus } from './lib/dates';
   import { topicHex } from './lib/colors';
   import { dndzone } from 'svelte-dnd-action';
   import type { DndEvent } from 'svelte-dnd-action';
@@ -129,27 +129,6 @@
     }
   }
 
-  // Attach svelte-dnd-action's custom events imperatively so its non-standard
-  // element events don't need to be typed through svelte-check.
-  function dndEvents(
-    node: HTMLElement,
-    handlers: {
-      consider: (e: CustomEvent<DndEvent<main.Topic>>) => void;
-      finalize: (e: CustomEvent<DndEvent<main.Topic>>) => void;
-    }
-  ) {
-    const onConsider = (e: Event) => handlers.consider(e as CustomEvent<DndEvent<main.Topic>>);
-    const onFinalize = (e: Event) => handlers.finalize(e as CustomEvent<DndEvent<main.Topic>>);
-    node.addEventListener('consider', onConsider);
-    node.addEventListener('finalize', onFinalize);
-    return {
-      destroy() {
-        node.removeEventListener('consider', onConsider);
-        node.removeEventListener('finalize', onFinalize);
-      },
-    };
-  }
-
   // Flattened, date-sorted list of incomplete sessions for the agenda view.
   type AgendaItem = { topicId: string; topicName: string; sessionId: string; date: string; topicColor: string };
 
@@ -176,13 +155,6 @@
     }
     return groups;
   })();
-
-  function dateClass(date: string): string {
-    const n = daysFromToday(date);
-    if (n < 0) return 'overdue';
-    if (n === 0) return 'today';
-    return 'upcoming';
-  }
 </script>
 
 <div class="shell">
@@ -305,7 +277,8 @@
                 <div
                   class="topic-list"
                   use:dndzone={{ items: dndItems, flipDurationMs: 180, dragDisabled, dropTargetStyle: {} }}
-                  use:dndEvents={{ consider: handleConsider, finalize: handleFinalize }}
+                  on:consider={handleConsider}
+                  on:finalize={handleFinalize}
                 >
                   {#each dndItems as topic (topic.id)}
                     <div animate:flip={{ duration: 180 }}>
@@ -365,7 +338,7 @@
               {:else}
                 <ul class="agenda-list">
                   {#each agendaGroups as group (group.date)}
-                    <li class="agenda-day reveal {dateClass(group.date)}">
+                    <li class="agenda-day reveal {sessionStatus(group.date)}">
                       <div class="day-head">
                         <span class="day-date tnum">{formatDate(group.date)}</span>
                         <span class="day-rel tnum">{relativeLabel(group.date)}</span>

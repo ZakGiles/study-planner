@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // dateLayout is the canonical format used for all study dates (no time component).
@@ -15,7 +17,7 @@ type Topic struct {
 	ID          string     `json:"id"`
 	Name        string     `json:"name"`
 	Description string     `json:"description"`
-	Color       string     `json:"color"`    // palette token; "" = default
+	Color       string     `json:"color"` // palette token; "" = default
 	Tags        []string   `json:"tags"`
 	Archived    bool       `json:"archived"`
 	Order       int        `json:"order"` // manual sort position
@@ -83,23 +85,30 @@ func normalizeOrder(topics []*Topic) {
 	}
 }
 
-// nextOrder returns an Order that sorts after every existing topic, even when
-// deletions have left gaps in the sequence (so len() can't be used).
-func nextOrder(topics []*Topic) int {
-	next := 0
-	for _, t := range topics {
-		if t.Order >= next {
-			next = t.Order + 1
-		}
-	}
-	return next
-}
-
 // Session is a single planned study date for a topic.
 type Session struct {
 	ID   string `json:"id"`
 	Date string `json:"date"` // YYYY-MM-DD
 	Done bool   `json:"done"`
+}
+
+// addDates appends new sessions for any dates the topic does not already have.
+// The caller must hold the store lock.
+func (t *Topic) addDates(dates []string) {
+	existing := make(map[string]struct{}, len(t.Sessions))
+	for _, s := range t.Sessions {
+		existing[s.Date] = struct{}{}
+	}
+	for _, d := range dates {
+		if _, ok := existing[d]; ok {
+			continue
+		}
+		existing[d] = struct{}{}
+		t.Sessions = append(t.Sessions, &Session{
+			ID:   uuid.NewString(),
+			Date: d,
+		})
+	}
 }
 
 // DefaultIntervals are day offsets from a start date that approximate a classic

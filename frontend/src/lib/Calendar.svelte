@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import type { main } from '../../wailsjs/go/models';
   import { ToggleSession } from '../../wailsjs/go/main/App.js';
-  import { parseDate, toISO, todayISO, daysFromToday, relativeLabel } from './dates';
+  import { toISO, todayISO, relativeLabel, sessionStatus } from './dates';
   import { topicHex } from './colors';
 
   export let topics: main.Topic[] = [];
@@ -62,15 +62,7 @@
   })();
 
   // Count of sessions that actually fall inside the month on screen.
-  $: monthCount = topics.reduce(
-    (n, t) =>
-      n +
-      t.sessions.filter((s) => {
-        const d = parseDate(s.date);
-        return d.getFullYear() === viewYear && d.getMonth() === viewMonth;
-      }).length,
-    0
-  );
+  $: monthCount = cells.reduce((n, c) => n + (c.inMonth ? c.sessions.length : 0), 0);
 
   function prevMonth() {
     if (viewMonth === 0) {
@@ -90,14 +82,6 @@
     const t = new Date();
     viewYear = t.getFullYear();
     viewMonth = t.getMonth();
-  }
-
-  function sessionClass(date: string, done: boolean): string {
-    if (done) return 'done';
-    const n = daysFromToday(date);
-    if (n < 0) return 'overdue';
-    if (n === 0) return 'today';
-    return 'upcoming';
   }
 
   async function toggle(s: DaySession) {
@@ -136,7 +120,7 @@
           <div class="cell-sessions">
             {#each cell.sessions as s (s.sessionId)}
               <button
-                class="ev {sessionClass(s.date, s.done)}"
+                class="ev {sessionStatus(s.date, s.done)}"
                 style="--topic:{topicHex(s.color)}"
                 title={`${s.topicName} — ${s.done ? 'done' : relativeLabel(s.date)} (click to toggle)`}
                 on:click={() => toggle(s)}

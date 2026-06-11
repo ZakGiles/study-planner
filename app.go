@@ -61,6 +61,34 @@ func (a *App) snapshot() []*Topic {
 	return topics
 }
 
+// mutate runs fn under the store lock, persists, and returns the new
+// snapshot. fn returning an error skips the save.
+func (a *App) mutate(fn func() error) ([]*Topic, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	a.store.mu.Lock()
+	defer a.store.mu.Unlock()
+	if err := fn(); err != nil {
+		return nil, err
+	}
+	if err := a.store.save(); err != nil {
+		return nil, err
+	}
+	return a.snapshot(), nil
+}
+
+// mutateTopic locates a topic and applies fn to it.
+func (a *App) mutateTopic(id string, fn func(*Topic) error) ([]*Topic, error) {
+	return a.mutate(func() error {
+		t := a.store.find(id)
+		if t == nil {
+			return errors.New("topic not found")
+		}
+		return fn(t)
+	})
+}
+
 // GetTopics returns all topics with their sessions.
 func (a *App) GetTopics() ([]*Topic, error) {
 	if err := a.ready(); err != nil {
@@ -73,191 +101,117 @@ func (a *App) GetTopics() ([]*Topic, error) {
 
 // AddTopic creates a new topic. The name is required; the description is optional.
 func (a *App) AddTopic(name, description string) ([]*Topic, error) {
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, errors.New("topic name is required")
 	}
-	a.store.mu.Lock()
-	defer a.store.mu.Unlock()
-	a.store.topics = append(a.store.topics, &Topic{
-		ID:          uuid.NewString(),
-		Name:        name,
-		Description: strings.TrimSpace(description),
-		Color:       TopicColors[len(a.store.topics)%len(TopicColors)],
-		Tags:        []string{},
-		Order:       nextOrder(a.store.topics),
-		CreatedAt:   time.Now(),
-		Sessions:    []*Session{},
+	return a.mutate(func() error {
+		a.store.topics = append(a.store.topics, &Topic{
+			ID:          uuid.NewString(),
+			Name:        name,
+			Description: strings.TrimSpace(description),
+			Color:       TopicColors[len(a.store.topics)%len(TopicColors)],
+			Tags:        []string{},
+			Order:       len(a.store.topics),
+			CreatedAt:   time.Now(),
+			Sessions:    []*Session{},
+		})
+		return nil
 	})
-	if err := a.store.save(); err != nil {
-		return nil, err
-	}
-	return a.snapshot(), nil
 }
 
-// UpdateTopic edits an existing topic's name and description.
-func (a *App) UpdateTopic(id, name, description string) ([]*Topic, error) {
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
+// UpdateTopic edits an existing topic's name, description and tags.
+func (a *App) UpdateTopic(id, name, description string, tags []string) ([]*Topic, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, errors.New("topic name is required")
 	}
-	a.store.mu.Lock()
-	defer a.store.mu.Unlock()
-	t := a.store.find(id)
-	if t == nil {
-		return nil, errors.New("topic not found")
-	}
-	t.Name = name
-	t.Description = strings.TrimSpace(description)
-	if err := a.store.save(); err != nil {
-		return nil, err
-	}
-	return a.snapshot(), nil
+	return a.mutateTopic(id, func(t *Topic) error {
+		t.Name = name
+		t.Description = strings.TrimSpace(description)
+		t.Tags = normalizeTags(tags)
+		return nil
+	})
 }
 
 // SetTopicColor sets a topic's palette colour. An empty string resets it to the
 // default accent; any other value must be a known palette token.
 func (a *App) SetTopicColor(id, color string) ([]*Topic, error) {
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
 	if !validColor(color) {
 		return nil, errors.New("unknown colour")
 	}
-	a.store.mu.Lock()
-	defer a.store.mu.Unlock()
-	t := a.store.find(id)
-	if t == nil {
-		return nil, errors.New("topic not found")
-	}
-	t.Color = color
-	if err := a.store.save(); err != nil {
-		return nil, err
-	}
-	return a.snapshot(), nil
-}
-
-// SetTopicTags replaces a topic's tags with a normalized version of the input.
-func (a *App) SetTopicTags(id string, tags []string) ([]*Topic, error) {
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
-	a.store.mu.Lock()
-	defer a.store.mu.Unlock()
-	t := a.store.find(id)
-	if t == nil {
-		return nil, errors.New("topic not found")
-	}
-	t.Tags = normalizeTags(tags)
-	if err := a.store.save(); err != nil {
-		return nil, err
-	}
-	return a.snapshot(), nil
+	return a.mutateTopic(id, func(t *Topic) error {
+		t.Color = color
+		return nil
+	})
 }
 
 // SetTopicArchived archives or unarchives a topic.
 func (a *App) SetTopicArchived(id string, archived bool) ([]*Topic, error) {
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
-	a.store.mu.Lock()
-	defer a.store.mu.Unlock()
-	t := a.store.find(id)
-	if t == nil {
-		return nil, errors.New("topic not found")
-	}
-	t.Archived = archived
-	if err := a.store.save(); err != nil {
-		return nil, err
-	}
-	return a.snapshot(), nil
+	return a.mutateTopic(id, func(t *Topic) error {
+		t.Archived = archived
+		return nil
+	})
 }
 
 // ReorderTopics applies a new manual order. orderedIDs lists topic ids in the
 // desired order; any topic not included keeps its relative order after them
 // (e.g. archived topics that are hidden from the reorderable list).
 func (a *App) ReorderTopics(orderedIDs []string) ([]*Topic, error) {
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
-	a.store.mu.Lock()
-	defer a.store.mu.Unlock()
-	pos := make(map[string]int, len(orderedIDs))
-	for i, id := range orderedIDs {
-		pos[id] = i
-	}
-	// Establish the current relative order first so unlisted topics keep it.
-	sort.SliceStable(a.store.topics, func(i, j int) bool {
-		return a.store.topics[i].Order < a.store.topics[j].Order
-	})
-	next := len(orderedIDs)
-	for _, t := range a.store.topics {
-		if p, ok := pos[t.ID]; ok {
-			t.Order = p
-		} else {
-			t.Order = next
-			next++
+	return a.mutate(func() error {
+		pos := make(map[string]int, len(orderedIDs))
+		for i, id := range orderedIDs {
+			pos[id] = i
 		}
-	}
-	normalizeOrder(a.store.topics)
-	if err := a.store.save(); err != nil {
-		return nil, err
-	}
-	return a.snapshot(), nil
+		// Establish the current relative order first so unlisted topics keep it.
+		sort.SliceStable(a.store.topics, func(i, j int) bool {
+			return a.store.topics[i].Order < a.store.topics[j].Order
+		})
+		next := len(orderedIDs)
+		for _, t := range a.store.topics {
+			if p, ok := pos[t.ID]; ok {
+				t.Order = p
+			} else {
+				t.Order = next
+				next++
+			}
+		}
+		normalizeOrder(a.store.topics)
+		return nil
+	})
 }
 
 // DeleteTopic removes a topic and all of its sessions.
 func (a *App) DeleteTopic(id string) ([]*Topic, error) {
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
-	a.store.mu.Lock()
-	defer a.store.mu.Unlock()
-	kept := a.store.topics[:0]
-	found := false
-	for _, t := range a.store.topics {
-		if t.ID == id {
-			found = true
-			continue
+	return a.mutate(func() error {
+		kept := a.store.topics[:0]
+		found := false
+		for _, t := range a.store.topics {
+			if t.ID == id {
+				found = true
+				continue
+			}
+			kept = append(kept, t)
 		}
-		kept = append(kept, t)
-	}
-	if !found {
-		return nil, errors.New("topic not found")
-	}
-	a.store.topics = kept
-	if err := a.store.save(); err != nil {
-		return nil, err
-	}
-	return a.snapshot(), nil
+		if !found {
+			return errors.New("topic not found")
+		}
+		a.store.topics = kept
+		normalizeOrder(a.store.topics)
+		return nil
+	})
 }
 
 // AddSession adds a single, manually-chosen study date to a topic.
 func (a *App) AddSession(topicID, date string) ([]*Topic, error) {
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
 	date = strings.TrimSpace(date)
 	if _, err := time.Parse(dateLayout, date); err != nil {
 		return nil, errors.New("date must be in YYYY-MM-DD format")
 	}
-	a.store.mu.Lock()
-	defer a.store.mu.Unlock()
-	t := a.store.find(topicID)
-	if t == nil {
-		return nil, errors.New("topic not found")
-	}
-	a.addDates(t, []string{date})
-	if err := a.store.save(); err != nil {
-		return nil, err
-	}
-	return a.snapshot(), nil
+	return a.mutateTopic(topicID, func(t *Topic) error {
+		t.addDates([]string{date})
+		return nil
+	})
 }
 
 // AddSpacedSessions regenerates a topic's spaced-repetition schedule from a
@@ -266,9 +220,6 @@ func (a *App) AddSession(topicID, date string) ([]*Topic, error) {
 // frontend confirms this with the user before calling. If intervals is empty the
 // default schedule (0, 1, 3, 7, 14, 30 days) is used.
 func (a *App) AddSpacedSessions(topicID, startDate string, intervals []int) ([]*Topic, error) {
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
 	startDate = strings.TrimSpace(startDate)
 	start, err := time.Parse(dateLayout, startDate)
 	if err != nil {
@@ -277,83 +228,37 @@ func (a *App) AddSpacedSessions(topicID, startDate string, intervals []int) ([]*
 	if len(intervals) == 0 {
 		intervals = DefaultIntervals
 	}
-	a.store.mu.Lock()
-	defer a.store.mu.Unlock()
-	t := a.store.find(topicID)
-	if t == nil {
-		return nil, errors.New("topic not found")
-	}
-	t.Sessions = []*Session{}
-	a.addDates(t, spacedDates(start, intervals))
-	if err := a.store.save(); err != nil {
-		return nil, err
-	}
-	return a.snapshot(), nil
-}
-
-// addDates appends new sessions for any dates the topic does not already have.
-// The caller must hold the lock.
-func (a *App) addDates(t *Topic, dates []string) {
-	existing := make(map[string]struct{}, len(t.Sessions))
-	for _, s := range t.Sessions {
-		existing[s.Date] = struct{}{}
-	}
-	for _, d := range dates {
-		if _, ok := existing[d]; ok {
-			continue
-		}
-		existing[d] = struct{}{}
-		t.Sessions = append(t.Sessions, &Session{
-			ID:   uuid.NewString(),
-			Date: d,
-		})
-	}
+	return a.mutateTopic(topicID, func(t *Topic) error {
+		t.Sessions = []*Session{}
+		t.addDates(spacedDates(start, intervals))
+		return nil
+	})
 }
 
 // DeleteSession removes a single study date from a topic.
 func (a *App) DeleteSession(topicID, sessionID string) ([]*Topic, error) {
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
-	a.store.mu.Lock()
-	defer a.store.mu.Unlock()
-	t := a.store.find(topicID)
-	if t == nil {
-		return nil, errors.New("topic not found")
-	}
-	kept := t.Sessions[:0]
-	for _, s := range t.Sessions {
-		if s.ID == sessionID {
-			continue
+	return a.mutateTopic(topicID, func(t *Topic) error {
+		kept := t.Sessions[:0]
+		for _, s := range t.Sessions {
+			if s.ID == sessionID {
+				continue
+			}
+			kept = append(kept, s)
 		}
-		kept = append(kept, s)
-	}
-	t.Sessions = kept
-	if err := a.store.save(); err != nil {
-		return nil, err
-	}
-	return a.snapshot(), nil
+		t.Sessions = kept
+		return nil
+	})
 }
 
 // ToggleSession flips the done state of a study session.
 func (a *App) ToggleSession(topicID, sessionID string) ([]*Topic, error) {
-	if err := a.ready(); err != nil {
-		return nil, err
-	}
-	a.store.mu.Lock()
-	defer a.store.mu.Unlock()
-	t := a.store.find(topicID)
-	if t == nil {
-		return nil, errors.New("topic not found")
-	}
-	for _, s := range t.Sessions {
-		if s.ID == sessionID {
-			s.Done = !s.Done
-			if err := a.store.save(); err != nil {
-				return nil, err
+	return a.mutateTopic(topicID, func(t *Topic) error {
+		for _, s := range t.Sessions {
+			if s.ID == sessionID {
+				s.Done = !s.Done
+				return nil
 			}
-			return a.snapshot(), nil
 		}
-	}
-	return nil, errors.New("session not found")
+		return errors.New("session not found")
+	})
 }
