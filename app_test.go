@@ -1,0 +1,362 @@
+package main
+
+import (
+	"path/filepath"
+	"reflect"
+	"testing"
+	"time"
+)
+
+// testClock is a fixed "now" (local noon, well clear of any midnight edge) so
+// that date-relative tests are deterministic: both the app and the day() helper
+// derive every date from this same instant.
+var testClock = time.Date(2026, 6, 12, 12, 0, 0, 0, time.Local)
+
+// newTestApp returns an App backed by a store in a temp directory, bypassing
+// the real user config dir, with a frozen clock.
+func newTestApp(t *testing.T) *App {
+	t.Helper()
+	return &App{
+		store: &Store{
+			path:   filepath.Join(t.TempDir(), "data.json"),
+			topics: []*Topic{},
+		},
+		now: func() time.Time { return testClock },
+	}
+}
+
+func sessionDates(t *Topic) []string {
+	out := make([]string, len(t.Sessions))
+	for i, s := range t.Sessions {
+		out[i] = s.Date
+	}
+	return out
+}
+
+func TestAddSpacedSessionsReplaceAndMerge(t *testing.T) {
+	a := newTestApp(t)
+	topics, err := a.AddTopic("Maths", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := topics[0].ID
+
+	// Seed one manual session and mark it done.
+	topics, err = a.AddSession(id, "2026-06-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doneID := topics[0].Sessions[0].ID
+	if _, err := a.ToggleSession(id, doneID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Merge: existing date kept (same ID, still done), new dates added around it.
+	topics, err = a.AddSpacedSessions(id, "2026-06-01", []int{0, 2}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := sessionDates(topics[0])
+	want := []string{"2026-06-01", "2026-06-03"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("merge dates = %v, want %v", got, want)
+	}
+	if s := topics[0].Sessions[0]; s.ID != doneID || !s.Done {
+		t.Fatalf("merge should keep the existing session untouched, got id=%s done=%v", s.ID, s.Done)
+	}
+
+	// Replace: everything cleared, only the new schedule remains.
+	topics, err = a.AddSpacedSessions(id, "2026-06-10", []int{0, 1}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = sessionDates(topics[0])
+	want = []string{"2026-06-10", "2026-06-11"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("replace dates = %v, want %v", got, want)
+	}
+	for _, s := range topics[0].Sessions {
+		if s.Done {
+			t.Fatalf("replace should reset done state, got done session on %s", s.Date)
+		}
+	}
+}
+
+func TestSnapshotIsCopy(t *testing.T) {
+	a := newTestApp(t)
+	topics, err := a.AddTopic("Physics", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AddSession(topics[0].ID, "2026-06-05"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := a.GetTopics()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got[0].Name = "mutated"
+	got[0].Sessions[0].Done = true
+	got[0].Tags = append(got[0].Tags, "sneaky")
+
+	fresh, err := a.GetTopics()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh[0].Name != "Physics" || fresh[0].Sessions[0].Done || len(fresh[0].Tags) != 0 {
+		t.Fatalf("mutating a returned snapshot leaked into the store: %+v", fresh[0])
+	}
+}
+
+// day returns the frozen testClock + n days as a YYYY-MM-DD string, matching
+// the app's local-date convention. Anchoring to testClock (not time.Now) keeps
+// expectations aligned with the app's injected clock across midnight.
+func day(n int) string {
+	return testClock.AddDate(0, 0, n).Format(dateLayout)
+}
+
+func TestToggleSessionStampsCompletedAt(t *testing.T) {
+	a := newTestApp(t)
+	topics, _ := a.AddTopic("Biology", "")
+	topics, err := a.AddSession(topics[0].ID, day(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, sid := topics[0].ID, topics[0].Sessions[0].ID
+
+	topics, err = a.ToggleSession(id, sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := topics[0].Sessions[0]; !s.Done || s.CompletedAt == nil {
+		t.Fatalf("toggle on: done=%v completedAt=%v", s.Done, s.CompletedAt)
+	}
+	topics, err = a.ToggleSession(id, sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := topics[0].Sessions[0]; s.Done || s.CompletedAt != nil {
+		t.Fatalf("toggle off should clear completedAt, got done=%v completedAt=%v", s.Done, s.CompletedAt)
+	}
+}
+
+func TestRescheduleSession(t *testing.T) {
+	a := newTestApp(t)
+	topics, _ := a.AddTopic("History", "")
+	id := topics[0].ID
+	a.AddSession(id, day(-3))
+	topics, _ = a.AddSession(id, day(0))
+	overdueID := topics[0].Sessions[0].ID
+
+	// Moving onto an occupied date drops the moved session.
+	topics, err := a.RescheduleSession(id, overdueID, day(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionDates(topics[0]); !reflect.DeepEqual(got, []string{day(0)}) {
+		t.Fatalf("move onto occupied date = %v, want just %v", got, day(0))
+	}
+
+	// Moving to a free date just changes the date.
+	sid := topics[0].Sessions[0].ID
+	topics, err = a.RescheduleSession(id, sid, day(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionDates(topics[0]); !reflect.DeepEqual(got, []string{day(2)}) {
+		t.Fatalf("move to free date = %v, want %v", got, day(2))
+	}
+}
+
+func TestRescheduleOverdueSessions(t *testing.T) {
+	a := newTestApp(t)
+
+	topics, _ := a.AddTopic("Catching up", "")
+	lone := topics[0].ID
+	a.AddSession(lone, day(-2)) // only overdue → moves to today
+
+	topics, _ = a.AddTopic("Covered", "")
+	covered := topics[1].ID
+	a.AddSession(covered, day(-3)) // overdue but today exists → dropped
+	a.AddSession(covered, day(0))
+
+	topics, _ = a.AddTopic("Shelved", "")
+	shelved := topics[2].ID
+	a.AddSession(shelved, day(-5))
+	a.SetTopicArchived(shelved, true) // archived → untouched
+
+	topics, err := a.RescheduleOverdueSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]*Topic{}
+	for _, tp := range topics {
+		byID[tp.ID] = tp
+	}
+	if got := sessionDates(byID[lone]); !reflect.DeepEqual(got, []string{day(0)}) {
+		t.Fatalf("lone overdue = %v, want moved to today", got)
+	}
+	if got := sessionDates(byID[covered]); !reflect.DeepEqual(got, []string{day(0)}) {
+		t.Fatalf("covered topic = %v, want surplus overdue dropped", got)
+	}
+	if got := sessionDates(byID[shelved]); !reflect.DeepEqual(got, []string{day(-5)}) {
+		t.Fatalf("archived topic = %v, want untouched", got)
+	}
+}
+
+func TestGradeSession(t *testing.T) {
+	t.Run("good re-anchors remaining gaps to today", func(t *testing.T) {
+		a := newTestApp(t)
+		topics, _ := a.AddTopic("Maths", "")
+		id := topics[0].ID
+		a.AddSession(id, day(-4))
+		a.AddSession(id, day(-1))
+		topics, _ = a.AddSession(id, day(2))
+		gradedID := topics[0].Sessions[0].ID // the day(-4) session
+
+		topics, err := a.GradeSession(id, gradedID, "good")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Gaps from day(-4) were 3 and 6 days; ×1.0 re-anchored to today.
+		want := []string{day(-4), day(3), day(6)}
+		if got := sessionDates(topics[0]); !reflect.DeepEqual(got, want) {
+			t.Fatalf("dates = %v, want %v", got, want)
+		}
+		if s := topics[0].Sessions[0]; !s.Done || s.CompletedAt == nil {
+			t.Fatalf("graded session should be done with completedAt set")
+		}
+	})
+
+	t.Run("again forces tomorrow and compresses", func(t *testing.T) {
+		a := newTestApp(t)
+		topics, _ := a.AddTopic("Maths", "")
+		id := topics[0].ID
+		a.AddSession(id, day(0))
+		a.AddSession(id, day(2))
+		topics, _ = a.AddSession(id, day(6))
+		gradedID := topics[0].Sessions[0].ID
+
+		topics, err := a.GradeSession(id, gradedID, "again")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{day(0), day(1), day(3)}
+		if got := sessionDates(topics[0]); !reflect.DeepEqual(got, want) {
+			t.Fatalf("dates = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("again with no future sessions schedules tomorrow", func(t *testing.T) {
+		a := newTestApp(t)
+		topics, _ := a.AddTopic("Maths", "")
+		id := topics[0].ID
+		topics, _ = a.AddSession(id, day(0))
+		gradedID := topics[0].Sessions[0].ID
+
+		topics, err := a.GradeSession(id, gradedID, "again")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{day(0), day(1)}
+		if got := sessionDates(topics[0]); !reflect.DeepEqual(got, want) {
+			t.Fatalf("dates = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("compressed dates stay strictly increasing", func(t *testing.T) {
+		a := newTestApp(t)
+		topics, _ := a.AddTopic("Maths", "")
+		id := topics[0].ID
+		a.AddSession(id, day(0))
+		a.AddSession(id, day(1))
+		topics, _ = a.AddSession(id, day(2))
+		gradedID := topics[0].Sessions[0].ID
+
+		// hard: round(1×0.7)=1 and round(2×0.7)=1 would collide; the second
+		// bumps to keep increasing.
+		topics, err := a.GradeSession(id, gradedID, "hard")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{day(0), day(1), day(2)}
+		if got := sessionDates(topics[0]); !reflect.DeepEqual(got, want) {
+			t.Fatalf("dates = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("rejects unknown grades and done sessions", func(t *testing.T) {
+		a := newTestApp(t)
+		topics, _ := a.AddTopic("Maths", "")
+		id := topics[0].ID
+		topics, _ = a.AddSession(id, day(0))
+		sid := topics[0].Sessions[0].ID
+
+		if _, err := a.GradeSession(id, sid, "amazing"); err == nil {
+			t.Fatal("expected error for unknown grade")
+		}
+		a.ToggleSession(id, sid)
+		if _, err := a.GradeSession(id, sid, "good"); err == nil {
+			t.Fatal("expected error for already-done session")
+		}
+	})
+}
+
+func TestDeleteSessionNotFound(t *testing.T) {
+	a := newTestApp(t)
+	topics, err := a.AddTopic("Chemistry", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.DeleteSession(topics[0].ID, "nope"); err == nil {
+		t.Fatal("expected an error for an unknown session id")
+	}
+}
+
+func TestSpacedDates(t *testing.T) {
+	start := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	got := spacedDates(start, []int{7, 0, 0, 3, -2})
+	want := []string{"2026-06-01", "2026-06-04", "2026-06-08"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("spacedDates = %v, want %v", got, want)
+	}
+}
+
+func TestNormalizeTags(t *testing.T) {
+	got := normalizeTags([]string{" Go ", "go", "", "GO", "rust"})
+	want := []string{"Go", "rust"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("normalizeTags = %v, want %v", got, want)
+	}
+
+	long := make([]string, 20)
+	for i := range long {
+		long[i] = string(rune('a'+i)) + "-tag"
+	}
+	if got := normalizeTags(long); len(got) != 12 {
+		t.Fatalf("tag count cap = %d, want 12", len(got))
+	}
+	if got := normalizeTags([]string{"abcdefghijklmnopqrstuvwxyz0123456789"}); len([]rune(got[0])) != 30 {
+		t.Fatalf("tag length cap = %d, want 30", len([]rune(got[0])))
+	}
+}
+
+func TestNormalizeOrder(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	topics := []*Topic{
+		{ID: "b", Order: 5, CreatedAt: base.Add(2 * time.Hour)},
+		{ID: "a", Order: 0, CreatedAt: base.Add(time.Hour)},
+		{ID: "c", Order: 0, CreatedAt: base},
+	}
+	normalizeOrder(topics)
+	gotIDs := []string{topics[0].ID, topics[1].ID, topics[2].ID}
+	if want := []string{"c", "a", "b"}; !reflect.DeepEqual(gotIDs, want) {
+		t.Fatalf("order = %v, want %v", gotIDs, want)
+	}
+	for i, tp := range topics {
+		if tp.Order != i {
+			t.Fatalf("topic %s has Order %d, want %d", tp.ID, tp.Order, i)
+		}
+	}
+}

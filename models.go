@@ -20,7 +20,8 @@ type Topic struct {
 	Color       string     `json:"color"` // palette token; "" = default
 	Tags        []string   `json:"tags"`
 	Archived    bool       `json:"archived"`
-	Order       int        `json:"order"` // manual sort position
+	Adaptive    bool       `json:"adaptive"` // grade reviews and re-space the schedule
+	Order       int        `json:"order"`    // manual sort position
 	CreatedAt   time.Time  `json:"createdAt"`
 	Sessions    []*Session `json:"sessions"`
 }
@@ -85,11 +86,14 @@ func normalizeOrder(topics []*Topic) {
 	}
 }
 
-// Session is a single planned study date for a topic.
+// Session is a single planned study date for a topic. CompletedAt records when
+// it was actually checked off (nil while not done; legacy done sessions from
+// before this field also have nil, and consumers fall back to Date).
 type Session struct {
-	ID   string `json:"id"`
-	Date string `json:"date"` // YYYY-MM-DD
-	Done bool   `json:"done"`
+	ID          string     `json:"id"`
+	Date        string     `json:"date"` // YYYY-MM-DD
+	Done        bool       `json:"done"`
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
 }
 
 // addDates appends new sessions for any dates the topic does not already have.

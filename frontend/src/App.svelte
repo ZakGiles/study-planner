@@ -3,9 +3,19 @@
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import type { main } from '../wailsjs/go/models';
-  import { GetTopics, AddTopic, ToggleSession, ReorderTopics } from '../wailsjs/go/main/App.js';
+  import {
+    GetTopics,
+    AddTopic,
+    ToggleSession,
+    ReorderTopics,
+    RescheduleOverdueSessions,
+    GradeSession,
+  } from '../wailsjs/go/main/App.js';
   import TopicCard from './lib/TopicCard.svelte';
   import Calendar from './lib/Calendar.svelte';
+  import Stats from './lib/Stats.svelte';
+  import ConfirmModal from './lib/ConfirmModal.svelte';
+  import { GRADE_ACTIONS, GRADE_VALUES } from './lib/grades';
   import { formatDate, relativeLabel, daysFromToday, sessionStatus } from './lib/dates';
   import { topicHex } from './lib/colors';
   import { dndzone } from 'svelte-dnd-action';
@@ -13,7 +23,7 @@
   import { flip } from 'svelte/animate';
 
   let topics: main.Topic[] = [];
-  let activeTab: 'topics' | 'agenda' | 'calendar' = 'topics';
+  let activeTab: 'topics' | 'agenda' | 'calendar' | 'stats' = 'topics';
   let loading = true;
   let errorMsg = '';
   let errorTimer: ReturnType<typeof setTimeout>;
@@ -21,6 +31,38 @@
   let newName = '';
   let newDescription = '';
   let adding = false;
+
+  // Theme is a pure UI preference, persisted locally rather than in the store.
+  let theme: 'dark' | 'light' = localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
+  $: {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('theme', theme);
+  }
+
+  // Keyboard shortcuts: n → new topic, / → search (when not already typing).
+  let nameInput: HTMLInputElement;
+  let searchInput: HTMLInputElement;
+
+  function isTyping(): boolean {
+    const el = document.activeElement;
+    return (
+      el instanceof HTMLInputElement ||
+      el instanceof HTMLTextAreaElement ||
+      el instanceof HTMLSelectElement
+    );
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    if (e.metaKey || e.ctrlKey || e.altKey || isTyping() || gradeTarget) return;
+    if (activeTab !== 'topics') return;
+    if (e.key === 'n') {
+      e.preventDefault();
+      nameInput?.focus();
+    } else if (e.key === '/') {
+      e.preventDefault();
+      searchInput?.focus();
+    }
+  }
 
   onMount(async () => {
     try {
@@ -60,11 +102,55 @@
     }
   }
 
+  // Guard against double-clicks per session: a second toggle for the SAME
+  // session while the first is in flight would flip it straight back. Tracked
+  // per id so toggling one session doesn't freeze the rest of the agenda.
+  let agendaBusy: Record<string, boolean> = {};
   async function toggleFromAgenda(topicId: string, sessionId: string) {
+    if (agendaBusy[sessionId]) return;
+    agendaBusy = { ...agendaBusy, [sessionId]: true };
     try {
       topics = await ToggleSession(topicId, sessionId);
     } catch (e) {
       showError(String(e));
+    } finally {
+      const { [sessionId]: _, ...rest } = agendaBusy;
+      agendaBusy = rest;
+    }
+  }
+
+  // Sessions of adaptive topics are graded instead of plainly checked off; the
+  // grade re-spaces the remaining schedule.
+  let gradeTarget: { topicId: string; sessionId: string; topicName: string } | null = null;
+
+  function agendaCheckClick(e: Event, item: AgendaItem) {
+    if (!item.adaptive) return; // plain toggle proceeds via on:change
+    e.preventDefault();
+    gradeTarget = { topicId: item.topicId, sessionId: item.sessionId, topicName: item.topicName };
+  }
+
+  async function onGradeChoose(e: CustomEvent<string>) {
+    const target = gradeTarget;
+    gradeTarget = null;
+    if (!target || !GRADE_VALUES.includes(e.detail)) return;
+    try {
+      topics = await GradeSession(target.topicId, target.sessionId, e.detail);
+    } catch (err) {
+      showError(String(err));
+    }
+  }
+
+  // One-click catch-up: every overdue session moves to today.
+  let catchingUp = false;
+  async function catchUpOverdue() {
+    if (catchingUp) return;
+    catchingUp = true;
+    try {
+      topics = await RescheduleOverdueSessions();
+    } catch (e) {
+      showError(String(e));
+    } finally {
+      catchingUp = false;
     }
   }
 
@@ -130,15 +216,42 @@
   }
 
   // Flattened, date-sorted list of incomplete sessions for the agenda view.
-  type AgendaItem = { topicId: string; topicName: string; sessionId: string; date: string; topicColor: string };
+  type AgendaItem = {
+    topicId: string;
+    topicName: string;
+    sessionId: string;
+    date: string;
+    topicColor: string;
+    adaptive: boolean;
+  };
 
   $: agenda = visibleActive
     .flatMap((t) =>
       t.sessions
         .filter((s) => !s.done)
-        .map((s) => ({ topicId: t.id, topicName: t.name, sessionId: s.id, date: s.date, topicColor: t.color }))
+        .map((s) => ({
+          topicId: t.id,
+          topicName: t.name,
+          sessionId: s.id,
+          date: s.date,
+          topicColor: t.color,
+          adaptive: t.adaptive,
+        }))
     )
     .sort((a, b) => a.date.localeCompare(b.date)) as AgendaItem[];
+
+  // Cross-topic scheduling load (date → planned sessions), used by the cards to
+  // warn when a generated schedule would pile onto already-busy days.
+  $: sessionLoad = (() => {
+    const m: Record<string, number> = {};
+    for (const t of topics) {
+      if (t.archived) continue;
+      for (const s of t.sessions) {
+        if (!s.done) m[s.date] = (m[s.date] ?? 0) + 1;
+      }
+    }
+    return m;
+  })();
 
   $: overdueCount = agenda.filter((a) => daysFromToday(a.date) < 0).length;
   $: totalSessions = visibleActive.reduce((n, t) => n + t.sessions.length, 0);
@@ -156,6 +269,8 @@
     return groups;
   })();
 </script>
+
+<svelte:window on:keydown={onKeydown} />
 
 <div class="shell">
   <header class="topbar">
@@ -180,17 +295,29 @@
         </div>
       </div>
 
-      <nav class="tabs reveal">
-        <button class:active={activeTab === 'topics'} on:click={() => (activeTab = 'topics')}>
-          Topics
+      <div class="top-right reveal">
+        <nav class="tabs">
+          <button class:active={activeTab === 'topics'} on:click={() => (activeTab = 'topics')}>
+            Topics
+          </button>
+          <button class:active={activeTab === 'agenda'} on:click={() => (activeTab = 'agenda')}>
+            Agenda{#if overdueCount}<span class="badge tnum">{overdueCount}</span>{/if}
+          </button>
+          <button class:active={activeTab === 'calendar'} on:click={() => (activeTab = 'calendar')}>
+            Calendar
+          </button>
+          <button class:active={activeTab === 'stats'} on:click={() => (activeTab = 'stats')}>
+            Stats
+          </button>
+        </nav>
+        <button
+          class="icon-btn theme-toggle"
+          title="Switch to {theme === 'dark' ? 'light' : 'dark'} theme"
+          on:click={() => (theme = theme === 'dark' ? 'light' : 'dark')}
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
         </button>
-        <button class:active={activeTab === 'agenda'} on:click={() => (activeTab = 'agenda')}>
-          Agenda{#if overdueCount}<span class="badge tnum">{overdueCount}</span>{/if}
-        </button>
-        <button class:active={activeTab === 'calendar'} on:click={() => (activeTab = 'calendar')}>
-          Calendar
-        </button>
-      </nav>
+      </div>
     </div>
   </header>
 
@@ -212,6 +339,7 @@
               <form on:submit|preventDefault={createTopic}>
                 <input
                   class="name-input"
+                  bind:this={nameInput}
                   bind:value={newName}
                   placeholder="Topic name (e.g. Linear Algebra)"
                 />
@@ -238,7 +366,7 @@
             {:else}
               <div class="toolbar reveal">
                 <div class="search">
-                  <input type="text" bind:value={search} placeholder="Search topics…" />
+                  <input type="text" bind:this={searchInput} bind:value={search} placeholder="Search topics… ( / )" />
                   {#if search}
                     <button class="search-clear" on:click={() => (search = '')} aria-label="Clear search">×</button>
                   {/if}
@@ -285,11 +413,13 @@
                       <TopicCard
                         {topic}
                         {allTags}
+                        {sessionLoad}
                         draggable={!hasFilter}
                         on:changed={onChanged}
                         on:error={onError}
                         on:arm={armDrag}
                         on:disarm={disarmDrag}
+                        on:filterTag={(e) => toggleTag(e.detail)}
                       />
                     </div>
                   {/each}
@@ -311,7 +441,14 @@
                   <h2 class="section-label">Archived</h2>
                   <div class="topic-list">
                     {#each visibleArchived as topic (topic.id)}
-                      <TopicCard {topic} {allTags} on:changed={onChanged} on:error={onError} />
+                      <TopicCard
+                        {topic}
+                        {allTags}
+                        {sessionLoad}
+                        on:changed={onChanged}
+                        on:error={onError}
+                        on:filterTag={(e) => toggleTag(e.detail)}
+                      />
                     {/each}
                   </div>
                 </div>
@@ -326,6 +463,9 @@
                 </span>
                 {#if overdueCount}
                   <span class="pill danger tnum">{overdueCount} overdue</span>
+                  <button class="btn ghost sm" on:click={catchUpOverdue} disabled={catchingUp}>
+                    Move all to today
+                  </button>
                 {/if}
               </div>
 
@@ -349,10 +489,13 @@
                             <label>
                               <input
                                 type="checkbox"
+                                disabled={agendaBusy[item.sessionId]}
+                                on:click={(e) => agendaCheckClick(e, item)}
                                 on:change={() => toggleFromAgenda(item.topicId, item.sessionId)}
                               />
                               <span class="topic-dot" style="--topic:{topicHex(item.topicColor)}"></span>
                               <span>{item.topicName}</span>
+                              {#if item.adaptive}<span class="adaptive-mark" title="Adaptive topic — reviews are graded">◎</span>{/if}
                             </label>
                           </li>
                         {/each}
@@ -362,14 +505,25 @@
                 </ul>
               {/if}
             </section>
-          {:else}
+          {:else if activeTab === 'calendar'}
             <Calendar topics={visibleActive} on:changed={onChanged} on:error={onError} />
+          {:else}
+            <Stats {topics} />
           {/if}
         </div>
       {/key}
     {/if}
   </main>
 </div>
+
+{#if gradeTarget}
+  <ConfirmModal
+    title="How did “{gradeTarget.topicName}” go?"
+    message="Your grade re-spaces the remaining reviews, starting from today."
+    actions={GRADE_ACTIONS}
+    on:choose={onGradeChoose}
+  />
+{/if}
 
 {#if errorMsg}
   <div class="toast" role="alert" transition:fly={{ y: 24, duration: 260, easing: cubicOut }}>
@@ -387,10 +541,21 @@
     position: sticky;
     top: 0;
     z-index: 20;
-    background: rgba(12, 18, 25, 0.78);
+    background: var(--topbar-bg);
     backdrop-filter: blur(14px) saturate(140%);
     -webkit-backdrop-filter: blur(14px) saturate(140%);
     border-bottom: 1px solid var(--border);
+  }
+
+  .top-right {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+  }
+
+  .theme-toggle {
+    margin-bottom: 0.55rem;
+    font-size: 0.85rem;
   }
 
   .topbar-inner {
@@ -867,6 +1032,12 @@
     background: var(--topic);
     flex: 0 0 auto;
     box-shadow: 0 0 8px -1px var(--topic);
+  }
+
+  .adaptive-mark {
+    font-size: 0.72rem;
+    color: var(--accent-bright);
+    opacity: 0.8;
   }
 
   .toast {

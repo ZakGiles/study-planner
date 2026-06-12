@@ -4,7 +4,7 @@ import {main} from '../models';
 
 export function AddSession(arg1:string,arg2:string):Promise<Array<main.Topic>>;
 
-export function AddSpacedSessions(arg1:string,arg2:string,arg3:Array<number>):Promise<Array<main.Topic>>;
+export function AddSpacedSessions(arg1:string,arg2:string,arg3:Array<number>,arg4:boolean):Promise<Array<main.Topic>>;
 
 export function AddTopic(arg1:string,arg2:string):Promise<Array<main.Topic>>;
 
@@ -14,7 +14,15 @@ export function DeleteTopic(arg1:string):Promise<Array<main.Topic>>;
 
 export function GetTopics():Promise<Array<main.Topic>>;
 
+export function GradeSession(arg1:string,arg2:string,arg3:string):Promise<Array<main.Topic>>;
+
 export function ReorderTopics(arg1:Array<string>):Promise<Array<main.Topic>>;
+
+export function RescheduleOverdueSessions():Promise<Array<main.Topic>>;
+
+export function RescheduleSession(arg1:string,arg2:string,arg3:string):Promise<Array<main.Topic>>;
+
+export function SetTopicAdaptive(arg1:string,arg2:boolean):Promise<Array<main.Topic>>;
 
 export function SetTopicArchived(arg1:string,arg2:boolean):Promise<Array<main.Topic>>;
 

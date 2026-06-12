@@ -2,7 +2,7 @@
 // strings interpreted in the user's local timezone.
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // parseDate reads a YYYY-MM-DD string as a local date (new Date("YYYY-MM-DD")
 // would parse as UTC and can shift the day).
@@ -100,4 +100,45 @@ export function spacedPreview(startISO: string, intervals: number[]): string[] {
     set.add(toISO(d));
   }
   return [...set].sort();
+}
+
+// smoothOffsets nudges day-offsets off busy days so that, where possible, no
+// day ends up with more than maxPerDay planned sessions (existing load plus
+// the new ones). Candidates are tried at ±1 then ±2 days, preferring later;
+// the first offset (the start session) never moves, and a session is kept on
+// its busy day rather than dropped when no nearby slot is free.
+export function smoothOffsets(
+  startISO: string,
+  offsets: number[],
+  load: Record<string, number>,
+  maxPerDay = 2
+): number[] {
+  if (!startISO) return [...offsets];
+  const start = parseDate(startISO);
+  const dateOf = (n: number) => {
+    const d = new Date(start);
+    d.setDate(d.getDate() + n);
+    return toISO(d);
+  };
+  const placed = new Set<number>();
+  const free = (m: number) => m >= 0 && !placed.has(m) && (load[dateOf(m)] ?? 0) < maxPerDay;
+  const out: number[] = [];
+  const sorted = Array.from(new Set(offsets)).sort((a, b) => a - b);
+  sorted.forEach((n, i) => {
+    let pick: number | null = i === 0 || free(n) ? n : null;
+    if (pick === null) {
+      for (const delta of [1, -1, 2, -2]) {
+        if (free(n + delta)) {
+          pick = n + delta;
+          break;
+        }
+      }
+    }
+    for (let m = n; pick === null; m++) {
+      if (!placed.has(m)) pick = m;
+    }
+    placed.add(pick);
+    out.push(pick);
+  });
+  return out.sort((a, b) => a - b);
 }
