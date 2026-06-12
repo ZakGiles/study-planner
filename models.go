@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -33,15 +34,7 @@ var TopicColors = []string{"blue", "violet", "emerald", "amber", "rose", "cyan",
 // validColor reports whether c is a known palette token. The empty string is
 // allowed and means "use the default accent".
 func validColor(c string) bool {
-	if c == "" {
-		return true
-	}
-	for _, t := range TopicColors {
-		if t == c {
-			return true
-		}
-	}
-	return false
+	return c == "" || slices.Contains(TopicColors, c)
 }
 
 // normalizeTags trims, drops empties and de-duplicates tags case-insensitively
@@ -71,16 +64,22 @@ func normalizeTags(tags []string) []string {
 	return out
 }
 
-// normalizeOrder sorts topics by their existing Order (creation time breaks
-// ties) and reassigns a contiguous 0..n-1 Order. This migrates legacy data
-// (all-zero Order falls back to creation order) and compacts gaps left by deletes.
-func normalizeOrder(topics []*Topic) {
+// sortTopics orders topics by their manual Order, breaking ties (e.g. legacy
+// all-zero data) by creation time.
+func sortTopics(topics []*Topic) {
 	sort.SliceStable(topics, func(i, j int) bool {
 		if topics[i].Order != topics[j].Order {
 			return topics[i].Order < topics[j].Order
 		}
 		return topics[i].CreatedAt.Before(topics[j].CreatedAt)
 	})
+}
+
+// normalizeOrder sorts topics and reassigns a contiguous 0..n-1 Order. This
+// migrates legacy data (all-zero Order falls back to creation order) and
+// compacts gaps left by deletes.
+func normalizeOrder(topics []*Topic) {
+	sortTopics(topics)
 	for i, t := range topics {
 		t.Order = i
 	}

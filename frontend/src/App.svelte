@@ -16,7 +16,8 @@
   import Stats from './lib/Stats.svelte';
   import GradeModal from './lib/GradeModal.svelte';
   import { openModalCount } from './lib/ConfirmModal.svelte';
-  import { formatDate, relativeLabel, daysFromToday, sessionStatus } from './lib/dates';
+  import { makeMutator } from './lib/mutate';
+  import { formatDate, relativeLabel, daysFromToday, sessionStatus, plural } from './lib/dates';
   import { topicHex } from './lib/colors';
   import { dndzone } from 'svelte-dnd-action';
   import type { DndEvent } from 'svelte-dnd-action';
@@ -66,14 +67,13 @@
     }
   }
 
+  // apply awaits a backend call, swaps in the returned topic list and toasts
+  // failures; resolves to whether it succeeded.
+  const apply = makeMutator({ topics: (t) => (topics = t), error: showError });
+
   onMount(async () => {
-    try {
-      topics = await GetTopics();
-    } catch (e) {
-      showError(String(e));
-    } finally {
-      loading = false;
-    }
+    await apply(GetTopics());
+    loading = false;
   });
 
   function showError(msg: string) {
@@ -93,15 +93,11 @@
   async function createTopic() {
     if (!newName.trim()) return;
     adding = true;
-    try {
-      topics = await AddTopic(newName, newDescription);
+    if (await apply(AddTopic(newName, newDescription))) {
       newName = '';
       newDescription = '';
-    } catch (e) {
-      showError(String(e));
-    } finally {
-      adding = false;
     }
+    adding = false;
   }
 
   // Guard against double-clicks per session: a second toggle for the SAME
@@ -111,14 +107,9 @@
   async function toggleFromAgenda(topicId: string, sessionId: string) {
     if (agendaBusy[sessionId]) return;
     agendaBusy = { ...agendaBusy, [sessionId]: true };
-    try {
-      topics = await ToggleSession(topicId, sessionId);
-    } catch (e) {
-      showError(String(e));
-    } finally {
-      const { [sessionId]: _, ...rest } = agendaBusy;
-      agendaBusy = rest;
-    }
+    await apply(ToggleSession(topicId, sessionId));
+    const { [sessionId]: _, ...rest } = agendaBusy;
+    agendaBusy = rest;
   }
 
   // Sessions of adaptive topics are graded instead of plainly checked off; the
@@ -137,12 +128,7 @@
   async function onGrade(e: CustomEvent<string>) {
     const target = gradeTarget;
     gradeTarget = null;
-    if (!target) return;
-    try {
-      topics = await GradeSession(target.topicId, target.sessionId, e.detail);
-    } catch (err) {
-      showError(String(err));
-    }
+    if (target) await apply(GradeSession(target.topicId, target.sessionId, e.detail));
   }
 
   // One-click catch-up: every overdue session moves to today.
@@ -150,13 +136,8 @@
   async function catchUpOverdue() {
     if (catchingUp) return;
     catchingUp = true;
-    try {
-      topics = await RescheduleOverdueSessions();
-    } catch (e) {
-      showError(String(e));
-    } finally {
-      catchingUp = false;
-    }
+    await apply(RescheduleOverdueSessions());
+    catchingUp = false;
   }
 
   // Organisation: search text, selected tags and whether archived topics show.
@@ -212,11 +193,8 @@
   async function handleFinalize(e: CustomEvent<DndEvent<main.Topic>>) {
     dndItems = e.detail.items;
     dragDisabled = true;
-    try {
-      topics = await ReorderTopics(dndItems.map((t) => t.id));
-    } catch (err) {
+    if (!(await apply(ReorderTopics(dndItems.map((t) => t.id))))) {
       dndItems = visibleActive; // revert the optimistic order
-      showError(String(err));
     }
   }
 
@@ -393,7 +371,7 @@
               <div class="overview reveal">
                 <div class="overview-stat">
                   <span class="stat-num tnum">{visibleActive.length}</span>
-                  <span class="stat-label">topic{visibleActive.length === 1 ? '' : 's'}</span>
+                  <span class="stat-label">topic{plural(visibleActive.length)}</span>
                 </div>
                 <div class="overview-bar">
                   <div class="overview-bar-head">
@@ -464,7 +442,7 @@
               <div class="agenda-summary reveal">
                 <span class="agenda-count">
                   <span class="stat-num tnum">{agenda.length}</span>
-                  upcoming session{agenda.length === 1 ? '' : 's'}
+                  upcoming session{plural(agenda.length)}
                 </span>
                 {#if overdueCount}
                   <span class="pill danger tnum">{overdueCount} overdue</span>

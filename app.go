@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -127,12 +128,7 @@ func (a *App) snapshot() []*Topic {
 	for _, t := range topics {
 		sortSessions(t.Sessions)
 	}
-	sort.SliceStable(topics, func(i, j int) bool {
-		if topics[i].Order != topics[j].Order {
-			return topics[i].Order < topics[j].Order
-		}
-		return topics[i].CreatedAt.Before(topics[j].CreatedAt)
-	})
+	sortTopics(topics)
 	out := make([]*Topic, len(topics))
 	for i, t := range topics {
 		c := *t
@@ -251,9 +247,7 @@ func (a *App) ReorderTopics(orderedIDs []string) ([]*Topic, error) {
 			pos[id] = i
 		}
 		// Establish the current relative order first so unlisted topics keep it.
-		sort.SliceStable(a.store.topics, func(i, j int) bool {
-			return a.store.topics[i].Order < a.store.topics[j].Order
-		})
+		sortTopics(a.store.topics)
 		next := len(orderedIDs)
 		for _, t := range a.store.topics {
 			if p, ok := pos[t.ID]; ok {
@@ -271,16 +265,8 @@ func (a *App) ReorderTopics(orderedIDs []string) ([]*Topic, error) {
 // DeleteTopic removes a topic and all of its sessions.
 func (a *App) DeleteTopic(id string) ([]*Topic, error) {
 	return a.mutate(func() error {
-		kept := a.store.topics[:0]
-		found := false
-		for _, t := range a.store.topics {
-			if t.ID == id {
-				found = true
-				continue
-			}
-			kept = append(kept, t)
-		}
-		if !found {
+		kept := slices.DeleteFunc(a.store.topics, func(t *Topic) bool { return t.ID == id })
+		if len(kept) == len(a.store.topics) {
 			return errors.New("topic not found")
 		}
 		a.store.topics = kept
@@ -474,6 +460,7 @@ func (a *App) GradeSession(topicID, sessionID, grade string) ([]*Topic, error) {
 		sort.SliceStable(future, func(i, j int) bool { return future[i].Date < future[j].Date })
 
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		dateAt := func(n int) string { return today.AddDate(0, 0, n).Format(dateLayout) }
 		prev := 0
 		for _, s := range future {
 			d, err := time.Parse(dateLayout, s.Date)
@@ -488,18 +475,15 @@ func (a *App) GradeSession(topicID, sessionID, grade string) ([]*Topic, error) {
 			if next <= prev {
 				next = prev + 1
 			}
-			for occupied[today.AddDate(0, 0, next).Format(dateLayout)] {
+			for occupied[dateAt(next)] {
 				next++
 			}
-			s.Date = today.AddDate(0, 0, next).Format(dateLayout)
+			s.Date = dateAt(next)
 			occupied[s.Date] = true
 			prev = next
 		}
-		if grade == "again" && len(future) == 0 {
-			tomorrow := today.AddDate(0, 0, 1).Format(dateLayout)
-			if !occupied[tomorrow] {
-				t.Sessions = append(t.Sessions, &Session{ID: uuid.NewString(), Date: tomorrow})
-			}
+		if grade == "again" && len(future) == 0 && !occupied[dateAt(1)] {
+			t.Sessions = append(t.Sessions, &Session{ID: uuid.NewString(), Date: dateAt(1)})
 		}
 		return nil
 	})

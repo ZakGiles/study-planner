@@ -2,8 +2,9 @@
   import { createEventDispatcher } from 'svelte';
   import type { main } from '../../wailsjs/go/models';
   import { AddSession, GradeSession, ToggleSession } from '../../wailsjs/go/main/App.js';
-  import { toISO, todayISO, formatDate, relativeLabel, sessionStatus } from './dates';
+  import { toISO, todayISO, formatDate, relativeLabel, sessionStatus, plural } from './dates';
   import { topicHex } from './colors';
+  import { makeMutator } from './mutate';
   import ConfirmModal from './ConfirmModal.svelte';
   import type { ModalAction } from './ConfirmModal.svelte';
   import GradeModal from './GradeModal.svelte';
@@ -103,40 +104,31 @@
     viewMonth = t.getMonth();
   }
 
+  const run = makeMutator({
+    topics: (t) => dispatch('changed', t),
+    error: (m) => dispatch('error', m),
+    busy: (b) => (busy = b),
+  });
+
   // Checking off a session of an adaptive topic asks for a grade instead.
   let gradeTarget: DaySession | null = null;
 
-  async function toggle(s: DaySession) {
+  function toggle(s: DaySession) {
     if (s.adaptive && !s.done) {
       gradeTarget = s;
       return;
     }
-    busy = true;
-    try {
-      dispatch('changed', await ToggleSession(s.topicId, s.sessionId));
-    } catch (e) {
-      dispatch('error', String(e));
-    } finally {
-      busy = false;
-    }
+    void run(ToggleSession(s.topicId, s.sessionId));
   }
 
   // No `busy` pre-check: it is also set by toggles and quick-add, so guarding
   // on it would silently drop a grade picked while an unrelated call is in
   // flight. Double-grading the same session is impossible — the modal unmounts
   // on the first choice.
-  async function onGrade(e: CustomEvent<string>) {
+  function onGrade(e: CustomEvent<string>) {
     const target = gradeTarget;
     gradeTarget = null;
-    if (!target) return;
-    busy = true;
-    try {
-      dispatch('changed', await GradeSession(target.topicId, target.sessionId, e.detail));
-    } catch (err) {
-      dispatch('error', String(err));
-    } finally {
-      busy = false;
-    }
+    if (target) void run(GradeSession(target.topicId, target.sessionId, e.detail));
   }
 
   // Quick-add: the "+" on a day cell picks a topic for a session on that date.
@@ -147,18 +139,10 @@
     { value: 'cancel', label: 'Cancel', kind: 'ghost' },
   ] as ModalAction[];
 
-  async function onPickTopic(e: CustomEvent<string>) {
+  function onPickTopic(e: CustomEvent<string>) {
     const date = pickDate;
     pickDate = null;
-    if (!date || e.detail === 'cancel') return;
-    busy = true;
-    try {
-      dispatch('changed', await AddSession(e.detail, date));
-    } catch (err) {
-      dispatch('error', String(err));
-    } finally {
-      busy = false;
-    }
+    if (date && e.detail !== 'cancel') void run(AddSession(e.detail, date));
   }
 </script>
 
@@ -170,7 +154,7 @@
       <button class="icon-btn nav" title="Next month" on:click={nextMonth}>›</button>
     </div>
     <div class="cal-actions">
-      <span class="cal-count tnum">{monthCount} session{monthCount === 1 ? '' : 's'}</span>
+      <span class="cal-count tnum">{monthCount} session{plural(monthCount)}</span>
       <button class="btn ghost" on:click={goToday}>Today</button>
     </div>
   </div>

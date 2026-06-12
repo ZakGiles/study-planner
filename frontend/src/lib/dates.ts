@@ -35,6 +35,11 @@ export function daysFromToday(s: string): number {
   return Math.round((d - today) / 86_400_000);
 }
 
+// plural returns the "s" suffix for a count, e.g. `session${plural(n)}`.
+export function plural(n: number): string {
+  return n === 1 ? '' : 's';
+}
+
 export function relativeLabel(s: string): string {
   const n = daysFromToday(s);
   if (n === 0) return 'Today';
@@ -58,8 +63,7 @@ export function sessionStatus(date: string, done = false): 'done' | 'overdue' | 
 export function parseIntervals(s: string): number[] {
   return s
     .split(/[\s,]+/)
-    .map((x) => x.trim())
-    .filter((x) => x !== '')
+    .filter(Boolean)
     .map(Number)
     .filter((n) => Number.isFinite(n) && n >= 0)
     .map((n) => Math.round(n));

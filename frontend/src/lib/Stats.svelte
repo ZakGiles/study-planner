@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { main } from '../../wailsjs/go/models';
-  import { parseDate, toISO, todayISO, formatDate, MONTHS } from './dates';
+  import { parseDate, toISO, todayISO, formatDate, plural, MONTHS } from './dates';
   import { topicHex } from './colors';
 
   // All topics, archived included — completed history shouldn't vanish when a
@@ -97,7 +97,7 @@
 
   function cellTitle(c: HeatCell): string {
     if (c.future) return formatDate(c.iso);
-    return `${c.count} session${c.count === 1 ? '' : 's'} — ${formatDate(c.iso)}`;
+    return `${c.count} session${plural(c.count)} — ${formatDate(c.iso)}`;
   }
 </script>
 
@@ -161,7 +161,7 @@
           <li class:archived={t.archived}>
             <span class="dot" style="--topic:{t.hex}"></span>
             <span class="name">{t.name}{#if t.archived}<span class="arch-tag">archived</span>{/if}</span>
-            <span class="bar"><span class="fill" style="width:{t.total ? (t.done / t.total) * 100 : 0}%; background:{t.hex}"></span></span>
+            <span class="bar"><span class="fill" style="width:{(t.done / t.total) * 100}%; background:{t.hex}"></span></span>
             <span class="count tnum">{t.done}/{t.total}</span>
           </li>
         {/each}
