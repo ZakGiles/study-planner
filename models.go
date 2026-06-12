@@ -20,7 +20,8 @@ type Topic struct {
 	Color       string     `json:"color"` // palette token; "" = default
 	Tags        []string   `json:"tags"`
 	Archived    bool       `json:"archived"`
-	Order       int        `json:"order"` // manual sort position
+	Adaptive    bool       `json:"adaptive"` // grade reviews and re-space the schedule
+	Order       int        `json:"order"`    // manual sort position
 	CreatedAt   time.Time  `json:"createdAt"`
 	Sessions    []*Session `json:"sessions"`
 }
@@ -85,11 +86,64 @@ func normalizeOrder(topics []*Topic) {
 	}
 }
 
-// Session is a single planned study date for a topic.
+// Session is a single planned study date for a topic. CompletedAt records when
+// it was actually checked off (nil while not done; legacy done sessions from
+// before this field also have nil, and consumers fall back to Date).
 type Session struct {
-	ID   string `json:"id"`
-	Date string `json:"date"` // YYYY-MM-DD
-	Done bool   `json:"done"`
+	ID          string     `json:"id"`
+	Date        string     `json:"date"` // YYYY-MM-DD
+	Done        bool       `json:"done"`
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+}
+
+// hasPendingOn reports whether the topic has a not-done session on date. Done
+// sessions are historical records and never block scheduling a new review, so
+// rescheduling and grading treat a day as free unless a pending session sits on
+// it. (addDates, by contrast, dedupes against all dates: generating a schedule
+// should not re-add a day already completed.)
+func (t *Topic) hasPendingOn(date string) bool {
+	for _, s := range t.Sessions {
+		if !s.Done && s.Date == date {
+			return true
+		}
+	}
+	return false
+}
+
+// pendingDates returns the set of dates holding a not-done session — the
+// domain of the one-pending-session-per-day invariant that hasPendingOn checks
+// pointwise. Scheduling code that places multiple dates seeds its collision
+// set from this.
+func (t *Topic) pendingDates() map[string]bool {
+	m := make(map[string]bool, len(t.Sessions))
+	for _, s := range t.Sessions {
+		if !s.Done {
+			m[s.Date] = true
+		}
+	}
+	return m
+}
+
+// findSession returns the session with the given id, or nil.
+func (t *Topic) findSession(id string) *Session {
+	for _, s := range t.Sessions {
+		if s.ID == id {
+			return s
+		}
+	}
+	return nil
+}
+
+// removeSession drops the session with the given id, returning whether it was
+// found. The caller must hold the store lock.
+func (t *Topic) removeSession(id string) bool {
+	for i, s := range t.Sessions {
+		if s.ID == id {
+			t.Sessions = append(t.Sessions[:i], t.Sessions[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 // addDates appends new sessions for any dates the topic does not already have.

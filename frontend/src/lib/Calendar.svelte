@@ -1,9 +1,12 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import type { main } from '../../wailsjs/go/models';
-  import { ToggleSession } from '../../wailsjs/go/main/App.js';
-  import { toISO, todayISO, relativeLabel, sessionStatus } from './dates';
+  import { AddSession, GradeSession, ToggleSession } from '../../wailsjs/go/main/App.js';
+  import { toISO, todayISO, formatDate, relativeLabel, sessionStatus } from './dates';
   import { topicHex } from './colors';
+  import ConfirmModal from './ConfirmModal.svelte';
+  import type { ModalAction } from './ConfirmModal.svelte';
+  import GradeModal from './GradeModal.svelte';
 
   export let topics: main.Topic[] = [];
 
@@ -22,7 +25,15 @@
 
   let busy = false;
 
-  type DaySession = { topicId: string; topicName: string; sessionId: string; date: string; done: boolean; color: string };
+  type DaySession = {
+    topicId: string;
+    topicName: string;
+    sessionId: string;
+    date: string;
+    done: boolean;
+    color: string;
+    adaptive: boolean;
+  };
 
   // Index every session by its date so each day cell is a cheap lookup.
   $: byDate = (() => {
@@ -30,7 +41,15 @@
     for (const t of topics) {
       for (const s of t.sessions) {
         const list = m.get(s.date) ?? [];
-        list.push({ topicId: t.id, topicName: t.name, sessionId: s.id, date: s.date, done: s.done, color: t.color });
+        list.push({
+          topicId: t.id,
+          topicName: t.name,
+          sessionId: s.id,
+          date: s.date,
+          done: s.done,
+          color: t.color,
+          adaptive: t.adaptive,
+        });
         m.set(s.date, list);
       }
     }
@@ -84,12 +103,59 @@
     viewMonth = t.getMonth();
   }
 
+  // Checking off a session of an adaptive topic asks for a grade instead.
+  let gradeTarget: DaySession | null = null;
+
   async function toggle(s: DaySession) {
+    if (s.adaptive && !s.done) {
+      gradeTarget = s;
+      return;
+    }
     busy = true;
     try {
       dispatch('changed', await ToggleSession(s.topicId, s.sessionId));
     } catch (e) {
       dispatch('error', String(e));
+    } finally {
+      busy = false;
+    }
+  }
+
+  // No `busy` pre-check: it is also set by toggles and quick-add, so guarding
+  // on it would silently drop a grade picked while an unrelated call is in
+  // flight. Double-grading the same session is impossible — the modal unmounts
+  // on the first choice.
+  async function onGrade(e: CustomEvent<string>) {
+    const target = gradeTarget;
+    gradeTarget = null;
+    if (!target) return;
+    busy = true;
+    try {
+      dispatch('changed', await GradeSession(target.topicId, target.sessionId, e.detail));
+    } catch (err) {
+      dispatch('error', String(err));
+    } finally {
+      busy = false;
+    }
+  }
+
+  // Quick-add: the "+" on a day cell picks a topic for a session on that date.
+  let pickDate: string | null = null;
+
+  $: topicActions = [
+    ...topics.map((t) => ({ value: t.id, label: t.name, color: topicHex(t.color) })),
+    { value: 'cancel', label: 'Cancel', kind: 'ghost' },
+  ] as ModalAction[];
+
+  async function onPickTopic(e: CustomEvent<string>) {
+    const date = pickDate;
+    pickDate = null;
+    if (!date || e.detail === 'cancel') return;
+    busy = true;
+    try {
+      dispatch('changed', await AddSession(e.detail, date));
+    } catch (err) {
+      dispatch('error', String(err));
     } finally {
       busy = false;
     }
@@ -115,7 +181,18 @@
     {/each}
     {#each cells as cell (cell.iso)}
       <div class="cell" class:out={!cell.inMonth} class:today={cell.isToday}>
-        <span class="day-num tnum">{cell.day}</span>
+        <div class="cell-head">
+          <span class="day-num tnum">{cell.day}</span>
+          {#if topics.length}
+            <button
+              class="add-day"
+              title="Add a session on {formatDate(cell.iso)}"
+              aria-label="Add a session on {formatDate(cell.iso)}"
+              on:click={() => (pickDate = cell.iso)}
+              disabled={busy}
+            >+</button>
+          {/if}
+        </div>
         {#if cell.sessions.length}
           <div class="cell-sessions">
             {#each cell.sessions as s (s.sessionId)}
@@ -135,6 +212,18 @@
     {/each}
   </div>
 </section>
+
+{#if pickDate}
+  <ConfirmModal
+    title="Add session — {formatDate(pickDate)}"
+    message="Pick a topic to study that day."
+    actions={topicActions}
+    on:choose={onPickTopic}
+  />
+{/if}
+{#if gradeTarget}
+  <GradeModal topicName={gradeTarget.topicName} on:grade={onGrade} on:cancel={() => (gradeTarget = null)} />
+{/if}
 
 <style>
   .cal-head {
@@ -226,6 +315,13 @@
     opacity: 0.4;
   }
 
+  .cell-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.2rem;
+  }
+
   .day-num {
     font-size: 0.76rem;
     color: var(--text);
@@ -234,8 +330,33 @@
     height: 1.55rem;
     display: grid;
     place-items: center;
-    align-self: flex-start;
     border-radius: var(--r-sm);
+  }
+
+  .add-day {
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.13s ease, background 0.15s ease, color 0.15s ease;
+  }
+  .cell:hover .add-day,
+  .add-day:focus-visible {
+    opacity: 1;
+  }
+  .add-day:hover:not(:disabled) {
+    background: var(--surface-3);
+    border-color: var(--border);
+    color: var(--text-strong);
+  }
+  .add-day:disabled {
+    cursor: not-allowed;
   }
 
   .cell.today .day-num {
@@ -267,7 +388,8 @@
     text-overflow: ellipsis;
     background: color-mix(in srgb, var(--topic) 16%, transparent);
     border-color: color-mix(in srgb, var(--topic) 45%, transparent);
-    color: color-mix(in srgb, var(--topic) 78%, white);
+    /* Mixing toward --text-strong keeps the label readable on both themes. */
+    color: color-mix(in srgb, var(--topic) 60%, var(--text-strong));
     transition: transform 0.12s var(--ease), filter 0.15s ease;
   }
 

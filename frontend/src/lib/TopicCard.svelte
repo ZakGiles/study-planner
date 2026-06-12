@@ -6,8 +6,11 @@
     AddSpacedSessions,
     DeleteSession,
     DeleteTopic,
+    GradeSession,
+    RescheduleSession,
     ToggleSession,
     UpdateTopic,
+    SetTopicAdaptive,
     SetTopicColor,
     SetTopicArchived,
   } from '../../wailsjs/go/main/App.js';
@@ -19,18 +22,25 @@
     parseIntervals,
     logOffsets,
     spacedPreview,
+    smoothOffsets,
   } from './dates';
   import { TOPIC_COLORS, topicHex } from './colors';
+  import ConfirmModal from './ConfirmModal.svelte';
+  import type { ModalAction } from './ConfirmModal.svelte';
+  import GradeModal from './GradeModal.svelte';
 
   export let topic: main.Topic;
   export let allTags: string[] = [];
   export let draggable = false;
+  // Cross-topic planned-session counts per date, for busy-day warnings.
+  export let sessionLoad: Record<string, number> = {};
 
   const dispatch = createEventDispatcher<{
     changed: main.Topic[];
     error: string;
     arm: void;
     disarm: void;
+    filterTag: string;
   }>();
 
   let busy = false;
@@ -68,7 +78,31 @@
       : logOffsets(logDilation, logFactor, logCount);
   // Unique, sorted offsets — what actually gets added (dates are de-duplicated).
   $: uniqueOffsets = Array.from(new Set(offsets)).sort((a, b) => a - b);
-  $: preview = spacedPreview(spacedStart, offsets);
+
+  // Load on each day from *other* topics: this topic's own sessions don't
+  // count against its own regenerated schedule.
+  $: otherLoad = (() => {
+    const m: Record<string, number> = { ...sessionLoad };
+    if (!topic.archived) {
+      for (const s of topic.sessions) {
+        if (!s.done && m[s.date]) m[s.date] -= 1;
+      }
+    }
+    return m;
+  })();
+
+  // Days the schedule would land on that already carry 2+ sessions from other
+  // topics. rawBusyDays decides whether smoothing is worth offering; busyDays
+  // reflects what actually remains busy after smoothing, so the warning clears
+  // when the shift resolves every conflict (and persists when it can't).
+  let smooth = false;
+  $: unsmoothedDates = spacedPreview(spacedStart, uniqueOffsets);
+  $: rawBusyDays = unsmoothedDates.filter((d) => (otherLoad[d] ?? 0) >= 2);
+  $: effectiveOffsets = smooth ? smoothOffsets(spacedStart, uniqueOffsets, otherLoad) : uniqueOffsets;
+  // When not smoothing, effectiveOffsets === uniqueOffsets, so reuse the dates
+  // already computed above instead of expanding them a second time.
+  $: preview = smooth ? spacedPreview(spacedStart, effectiveOffsets) : unsmoothedDates;
+  $: busyDays = preview.filter((d) => (otherLoad[d] ?? 0) >= 2);
   $: doneCount = topic.sessions.filter((s) => s.done).length;
   $: total = topic.sessions.length;
   $: progress = total ? Math.round((doneCount / total) * 100) : 0;
@@ -124,15 +158,75 @@
     await run(AddSession(topic.id, manualDate));
   }
 
-  async function generateSpaced() {
-    if (!spacedStart || offsets.length === 0) return;
-    if (total > 0) {
-      const ok = window.confirm(
-        `This will clear the ${total} existing study date${total === 1 ? '' : 's'} for “${topic.name}” and replace ${total === 1 ? 'it' : 'them'} with the new schedule.`
-      );
-      if (!ok) return;
+  // Destructive actions go through an in-app modal. (window.confirm is a no-op
+  // in the macOS webview — WKWebView returns false when the host app doesn't
+  // implement the JS dialog delegate, which Wails doesn't.)
+  let confirmKind: 'generate' | 'delete' | null = null;
+
+  $: plural = total === 1 ? '' : 's';
+  $: confirmTitle = confirmKind === 'delete' ? `Delete “${topic.name}”?` : 'Topic already has study dates';
+  $: confirmMessage =
+    confirmKind === 'delete'
+      ? total > 0
+        ? `This permanently removes the topic and its ${total} study date${plural}.`
+        : 'This permanently removes the topic.'
+      : `“${topic.name}” has ${total} study date${plural}. What should the new schedule do with ${total === 1 ? 'it' : 'them'}?`;
+  $: confirmActions =
+    confirmKind === 'delete'
+      ? ([
+          { value: 'delete', label: 'Delete topic', kind: 'danger' },
+          { value: 'cancel', label: 'Cancel', kind: 'ghost' },
+        ] as ModalAction[])
+      : ([
+          {
+            value: 'merge',
+            label: 'Keep both',
+            kind: 'primary',
+            detail: 'Add the new dates alongside the current ones — days already scheduled stay as they are.',
+          },
+          {
+            value: 'replace',
+            label: 'Replace schedule',
+            kind: 'danger',
+            detail: `Clear the ${total} current date${plural} (including completed ones) and start fresh.`,
+          },
+          { value: 'cancel', label: 'Cancel', kind: 'ghost' },
+        ] as ModalAction[]);
+
+  function requestGenerate() {
+    if (!spacedStart || effectiveOffsets.length === 0) return;
+    if (total === 0) {
+      void run(AddSpacedSessions(topic.id, spacedStart, effectiveOffsets, true));
+      return;
     }
-    await run(AddSpacedSessions(topic.id, spacedStart, offsets));
+    confirmKind = 'generate';
+  }
+
+  function onConfirmChoose(e: CustomEvent<string>) {
+    const kind = confirmKind;
+    confirmKind = null;
+    const choice = e.detail;
+    if (kind === 'generate' && (choice === 'merge' || choice === 'replace')) {
+      void run(AddSpacedSessions(topic.id, spacedStart, effectiveOffsets, choice === 'replace'));
+    } else if (kind === 'delete' && choice === 'delete') {
+      void run(DeleteTopic(topic.id));
+    }
+  }
+
+  // Adaptive topics grade each completed review instead of a plain check-off;
+  // the grade re-spaces the remaining schedule.
+  let gradeSid: string | null = null;
+
+  function sessionCheckClick(e: Event, s: main.Session) {
+    if (!topic.adaptive || s.done) return; // unchecking stays a plain toggle
+    e.preventDefault();
+    gradeSid = s.id;
+  }
+
+  function onGrade(e: CustomEvent<string>) {
+    const sid = gradeSid;
+    gradeSid = null;
+    if (sid) void run(GradeSession(topic.id, sid, e.detail));
   }
 </script>
 
@@ -154,7 +248,6 @@
             type="text"
             bind:value={tagDraft}
             on:keydown={tagKeydown}
-            on:blur={addTag}
             list="alltags-{topic.id}"
             placeholder="Add tags — press Enter"
           />
@@ -175,7 +268,9 @@
         {/if}
         {#if topic.tags.length}
           <div class="tags">
-            {#each topic.tags as t}<span class="tag">{t}</span>{/each}
+            {#each topic.tags as t}
+              <button class="tag clickable" title="Filter by “{t}”" on:click={() => dispatch('filterTag', t)}>{t}</button>
+            {/each}
           </div>
         {/if}
       </div>
@@ -199,7 +294,7 @@
         <button class="icon-btn swatch" title="Topic colour" on:click={() => (showColors = !showColors)} disabled={busy}><span class="swatch-dot"></span></button>
         <button class="icon-btn" title={topic.archived ? 'Restore topic' : 'Archive topic'} on:click={() => run(SetTopicArchived(topic.id, !topic.archived))} disabled={busy}>{topic.archived ? '↩️' : '📦'}</button>
         <button class="icon-btn" title="Edit topic" on:click={startEdit} disabled={busy}>✏️</button>
-        <button class="icon-btn" title="Delete topic" on:click={() => run(DeleteTopic(topic.id))} disabled={busy}>🗑️</button>
+        <button class="icon-btn" title="Delete topic" on:click={() => (confirmKind = 'delete')} disabled={busy}>🗑️</button>
       </div>
     {/if}
   </header>
@@ -229,10 +324,24 @@
       {#each topic.sessions as s (s.id)}
         <li class="session {sessionStatus(s.date, s.done)}">
           <label class="chk">
-            <input type="checkbox" checked={s.done} on:change={() => run(ToggleSession(topic.id, s.id))} disabled={busy} />
+            <input
+              type="checkbox"
+              checked={s.done}
+              on:click={(e) => sessionCheckClick(e, s)}
+              on:change={() => run(ToggleSession(topic.id, s.id))}
+              disabled={busy}
+            />
             <span class="date tnum">{formatDate(s.date)}</span>
             <span class="rel tnum">{s.done ? 'done' : relativeLabel(s.date)}</span>
           </label>
+          {#if sessionStatus(s.date, s.done) === 'overdue'}
+            <button
+              class="icon-btn small"
+              title="Move to today"
+              on:click={() => run(RescheduleSession(topic.id, s.id, todayISO()))}
+              disabled={busy}
+            >↷</button>
+          {/if}
           <button class="icon-btn small" title="Remove date" on:click={() => run(DeleteSession(topic.id, s.id))} disabled={busy}>×</button>
         </li>
       {/each}
@@ -242,7 +351,18 @@
   {/if}
 
   <div class="adder">
-    <span class="adder-label">Schedule dates</span>
+    <div class="adder-head">
+      <span class="adder-label">Schedule dates</span>
+      <label class="adaptive-toggle" title="Grade each review (Again / Hard / Good / Easy) and let the schedule adapt">
+        <input
+          type="checkbox"
+          checked={topic.adaptive}
+          disabled={busy}
+          on:change={() => run(SetTopicAdaptive(topic.id, !topic.adaptive))}
+        />
+        <span>Adaptive</span>
+      </label>
+    </div>
     <div class="seg">
       <button class:active={addMode === 'spaced'} on:click={() => (addMode = 'spaced')}>Spaced</button>
       <button class:active={addMode === 'manual'} on:click={() => (addMode = 'manual')}>Manual</button>
@@ -253,6 +373,11 @@
         <input type="date" bind:value={manualDate} />
         <button class="btn primary" on:click={addManual} disabled={busy || !manualDate}>Add date</button>
       </div>
+      {#if manualDate && topic.sessions.some((s) => s.date === manualDate)}
+        <p class="preview muted">Already scheduled on this day for this topic.</p>
+      {:else if manualDate && (otherLoad[manualDate] ?? 0) >= 2}
+        <p class="warn">This day already has {otherLoad[manualDate]} sessions across topics.</p>
+      {/if}
     {:else}
       <div class="row">
         <label class="field">
@@ -272,7 +397,7 @@
             <span>Days from start</span>
             <input type="text" bind:value={spacedIntervals} placeholder="0, 1, 3, 7, 14, 30" />
           </label>
-          <button class="btn primary" on:click={generateSpaced} disabled={busy || preview.length === 0}>Generate</button>
+          <button class="btn primary" on:click={requestGenerate} disabled={busy || preview.length === 0}>Generate</button>
         </div>
       {:else}
         <div class="row">
@@ -288,7 +413,7 @@
             <span>Sessions</span>
             <input type="number" min="1" max="60" step="1" bind:value={logCount} />
           </label>
-          <button class="btn primary" on:click={generateSpaced} disabled={busy || preview.length === 0}>Generate</button>
+          <button class="btn primary" on:click={requestGenerate} disabled={busy || preview.length === 0}>Generate</button>
         </div>
         <p class="hint">offset(n) = dilation × factor<sup>n</sup> × ln(n+1) days from start</p>
       {/if}
@@ -296,7 +421,22 @@
       {#if preview.length}
         <p class="preview tnum">→ {preview.length} session{preview.length === 1 ? '' : 's'}: {formatDate(preview[0])}{preview.length > 1 ? ` … ${formatDate(preview[preview.length - 1])}` : ''}</p>
         {#if spacedCurve === 'log'}
-          <p class="preview muted tnum">offsets: {uniqueOffsets.join(', ')} days</p>
+          <p class="preview muted tnum">offsets: {effectiveOffsets.join(', ')} days</p>
+        {/if}
+        {#if rawBusyDays.length}
+          <p class="warn" class:resolved={smooth && busyDays.length === 0}>
+            {#if smooth && busyDays.length === 0}
+              Shifted off {rawBusyDays.length === 1 ? 'a busy day' : `${rawBusyDays.length} busy days`}. ✓
+            {:else if busyDays.length === 1}
+              {formatDate(busyDays[0])} still has 2+ sessions across topics.
+            {:else}
+              {busyDays.length} of these days still have 2+ sessions across topics.
+            {/if}
+            <label class="smooth-toggle">
+              <input type="checkbox" bind:checked={smooth} />
+              <span>shift busy days</span>
+            </label>
+          </p>
         {/if}
       {:else if spacedCurve === 'fixed'}
         <p class="preview muted">Enter day offsets, e.g. <code>0, 1, 3, 7, 14, 30</code></p>
@@ -306,6 +446,15 @@
     {/if}
   </div>
 </article>
+
+<!-- Siblings of the card, not children: .card:hover sets a transform, which
+     would turn the modals' position:fixed into card-relative positioning. -->
+{#if confirmKind}
+  <ConfirmModal title={confirmTitle} message={confirmMessage} actions={confirmActions} on:choose={onConfirmChoose} />
+{/if}
+{#if gradeSid}
+  <GradeModal topicName={topic.name} on:grade={onGrade} on:cancel={() => (gradeSid = null)} />
+{/if}
 
 <style>
   .card {
@@ -406,6 +555,7 @@
   }
 
   .tag {
+    font-family: var(--font-body);
     font-size: 0.7rem;
     font-weight: 600;
     color: var(--muted);
@@ -413,6 +563,15 @@
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
     padding: 0.1rem 0.45rem;
+  }
+
+  .tag.clickable {
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .tag.clickable:hover {
+    color: var(--text-strong);
+    border-color: var(--accent-line);
   }
 
   .tag.removable {
@@ -561,6 +720,14 @@
     border-top: 1px solid var(--border-soft);
   }
 
+  .adder-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin-bottom: 0.55rem;
+  }
+
   .adder-label {
     display: block;
     font-size: 0.66rem;
@@ -568,7 +735,42 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--faint);
-    margin-bottom: 0.55rem;
+  }
+
+  .adaptive-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .adaptive-toggle:hover {
+    color: var(--text);
+  }
+
+  .warn {
+    margin: 0.55rem 0 0;
+    font-size: 0.76rem;
+    color: var(--amber);
+    line-height: 1.45;
+  }
+  .warn.resolved {
+    color: var(--green);
+  }
+
+  .smooth-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-left: 0.45rem;
+    color: var(--text);
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .smooth-toggle:hover {
+    color: var(--text-strong);
   }
 
   .seg {

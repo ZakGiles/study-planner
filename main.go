@@ -23,7 +23,10 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 244, G: 245, B: 247, A: 1},
+		// Matches --bg (#0b1118) so launch doesn't flash a light frame
+		// before the dark stylesheet paints. A is 0–255 (Wails divides by
+		// 255), so the window background needs full opacity, not 1.
+		BackgroundColour: &options.RGBA{R: 11, G: 17, B: 24, A: 255},
 		OnStartup:        app.startup,
 		Bind: []interface{}{
 			app,

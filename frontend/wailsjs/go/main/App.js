@@ -6,8 +6,8 @@ export function AddSession(arg1, arg2) {
   return window['go']['main']['App']['AddSession'](arg1, arg2);
 }
 
-export function AddSpacedSessions(arg1, arg2, arg3) {
-  return window['go']['main']['App']['AddSpacedSessions'](arg1, arg2, arg3);
+export function AddSpacedSessions(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['AddSpacedSessions'](arg1, arg2, arg3, arg4);
 }
 
 export function AddTopic(arg1, arg2) {
@@ -26,8 +26,24 @@ export function GetTopics() {
   return window['go']['main']['App']['GetTopics']();
 }
 
+export function GradeSession(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GradeSession'](arg1, arg2, arg3);
+}
+
 export function ReorderTopics(arg1) {
   return window['go']['main']['App']['ReorderTopics'](arg1);
+}
+
+export function RescheduleOverdueSessions() {
+  return window['go']['main']['App']['RescheduleOverdueSessions']();
+}
+
+export function RescheduleSession(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RescheduleSession'](arg1, arg2, arg3);
+}
+
+export function SetTopicAdaptive(arg1, arg2) {
+  return window['go']['main']['App']['SetTopicAdaptive'](arg1, arg2);
 }
 
 export function SetTopicArchived(arg1, arg2) {

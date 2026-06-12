@@ -4,6 +4,8 @@ export namespace main {
 	    id: string;
 	    date: string;
 	    done: boolean;
+	    // Go type: time
+	    completedAt?: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new Session(source);
@@ -14,7 +16,26 @@ export namespace main {
 	        this.id = source["id"];
 	        this.date = source["date"];
 	        this.done = source["done"];
+	        this.completedAt = this.convertValues(source["completedAt"], null);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Topic {
 	    id: string;
@@ -23,6 +44,7 @@ export namespace main {
 	    color: string;
 	    tags: string[];
 	    archived: boolean;
+	    adaptive: boolean;
 	    order: number;
 	    // Go type: time
 	    createdAt: any;
@@ -40,6 +62,7 @@ export namespace main {
 	        this.color = source["color"];
 	        this.tags = source["tags"];
 	        this.archived = source["archived"];
+	        this.adaptive = source["adaptive"];
 	        this.order = source["order"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.sessions = this.convertValues(source["sessions"], Session);

@@ -57,6 +57,8 @@
   --shadow-2: 0 8px 24px -10px rgba(0, 0, 0, 0.65);
   --shadow-pop: 0 14px 40px -14px rgba(0, 0, 0, 0.75);
 
+  --topbar-bg: rgba(12, 18, 25, 0.78);
+
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -64,6 +66,49 @@
   --font-display: "Bricolage Grotesque", "Hanken Grotesk", ui-sans-serif, sans-serif;
   --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", Roboto, sans-serif;
+}
+
+/* Light theme: same structure, inverted values. Toggled by setting
+   data-theme="light" on <html>; the default (no attribute) stays dark. */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #eef2f6;
+  --surface: #ffffff;
+  --surface-2: #f3f6f9;
+  --surface-3: #e8edf3;
+  --inset: #e3e9ef;
+
+  --border: #d8e0e8;
+  --border-soft: #e5eaf0;
+  --border-strong: #b9c7d4;
+
+  --text: #3a4d5f;
+  --text-strong: #0f1d2a;
+  --muted: #62788c;
+  --faint: #90a3b4;
+
+  --accent: #1f8fe0;
+  --accent-bright: #1679c4;
+  --accent-grad: linear-gradient(180deg, #3da4ef 0%, #1c74cf 100%);
+  --accent-grad-hover: linear-gradient(180deg, #4fb0f6 0%, #2a82dc 100%);
+  --accent-soft: rgba(31, 143, 224, 0.12);
+  --accent-line: rgba(31, 143, 224, 0.5);
+  --accent-glow: rgba(31, 143, 224, 0.25);
+
+  --green: #1fa873;
+  --amber: #b87408;
+  --amber-soft: rgba(184, 116, 8, 0.12);
+  --amber-line: rgba(184, 116, 8, 0.45);
+  --red: #d94f4f;
+  --red-soft: rgba(217, 79, 79, 0.1);
+  --red-line: rgba(217, 79, 79, 0.45);
+
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.07);
+  --shadow-2: 0 8px 24px -10px rgba(16, 24, 40, 0.18);
+  --shadow-pop: 0 14px 40px -14px rgba(16, 24, 40, 0.3);
+
+  --topbar-bg: rgba(255, 255, 255, 0.82);
 }
 
 * {
@@ -88,6 +133,19 @@ body {
     linear-gradient(180deg, #0d141d 0%, #0a0f15 100%);
   background-attachment: fixed;
   background-repeat: no-repeat;
+}
+
+[data-theme='light'] body {
+  background:
+    radial-gradient(1100px 560px at 50% -160px, rgba(31, 143, 224, 0.09), transparent 62%),
+    radial-gradient(900px 520px at 100% -40px, rgba(28, 116, 207, 0.06), transparent 58%),
+    linear-gradient(180deg, #f1f5f9 0%, #e9eef4 100%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+[data-theme='light'] body::before {
+  opacity: 0.018;
 }
 
 body::before {
@@ -284,6 +342,28 @@ input[type="checkbox"]:disabled {
 }
 .btn.ghost:active:not(:disabled) {
   transform: translateY(0);
+}
+
+.btn.danger {
+  background: var(--red-soft);
+  border-color: var(--red-line);
+  color: var(--red);
+}
+.btn.danger:hover:not(:disabled) {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px -8px rgba(255, 107, 107, 0.55);
+}
+.btn.danger:active:not(:disabled) {
+  transform: translateY(0);
+  filter: brightness(0.94);
+}
+
+.btn.sm {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.78rem;
 }
 
 .btn:disabled {

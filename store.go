@@ -69,14 +69,27 @@ func (s *Store) load() error {
 	return nil
 }
 
-// save writes the current topics to disk atomically.
+// save writes the current topics to disk atomically, syncing the temp file
+// before the rename so a crash can't leave a truncated data.json behind.
 func (s *Store) save() error {
 	data, err := json.MarshalIndent(s.topics, "", "  ")
 	if err != nil {
 		return err
 	}
 	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, s.path)
