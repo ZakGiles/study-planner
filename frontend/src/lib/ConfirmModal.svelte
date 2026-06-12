@@ -29,10 +29,37 @@
   let panel: HTMLElement;
   onMount(() => panel?.querySelector<HTMLElement>('button')?.focus());
 
+  function focusables(): HTMLElement[] {
+    return panel
+      ? Array.from(panel.querySelectorAll<HTMLElement>('button, [href], input, select, textarea'))
+      : [];
+  }
+
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       e.stopPropagation();
       dispatch('choose', 'cancel');
+      return;
+    }
+    // Trap Tab inside the panel so focus can't reach controls behind the
+    // overlay (which would otherwise let a keyboard user act on the page —
+    // e.g. overwrite the session being graded — while the modal is open).
+    if (e.key === 'Tab') {
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (!panel.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   }
 </script>

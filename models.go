@@ -96,6 +96,32 @@ type Session struct {
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
 }
 
+// hasPendingOn reports whether the topic has a not-done session on date. Done
+// sessions are historical records and never block scheduling a new review, so
+// rescheduling and grading treat a day as free unless a pending session sits on
+// it. (addDates, by contrast, dedupes against all dates: generating a schedule
+// should not re-add a day already completed.)
+func (t *Topic) hasPendingOn(date string) bool {
+	for _, s := range t.Sessions {
+		if !s.Done && s.Date == date {
+			return true
+		}
+	}
+	return false
+}
+
+// removeSession drops the session with the given id, returning whether it was
+// found. The caller must hold the store lock.
+func (t *Topic) removeSession(id string) bool {
+	for i, s := range t.Sessions {
+		if s.ID == id {
+			t.Sessions = append(t.Sessions[:i], t.Sessions[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // addDates appends new sessions for any dates the topic does not already have.
 // The caller must hold the store lock.
 func (t *Topic) addDates(dates []string) {

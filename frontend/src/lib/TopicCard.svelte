@@ -27,7 +27,7 @@
   import { TOPIC_COLORS, topicHex } from './colors';
   import ConfirmModal from './ConfirmModal.svelte';
   import type { ModalAction } from './ConfirmModal.svelte';
-  import { GRADE_ACTIONS, GRADE_VALUES } from './grades';
+  import GradeModal from './GradeModal.svelte';
 
   export let topic: main.Topic;
   export let allTags: string[] = [];
@@ -91,14 +91,18 @@
     return m;
   })();
 
-  // Days the unsmoothed schedule would land on that already carry 2+ sessions.
+  // Days the schedule would land on that already carry 2+ sessions from other
+  // topics. rawBusyDays decides whether smoothing is worth offering; busyDays
+  // reflects what actually remains busy after smoothing, so the warning clears
+  // when the shift resolves every conflict (and persists when it can't).
   let smooth = false;
   $: unsmoothedDates = spacedPreview(spacedStart, uniqueOffsets);
-  $: busyDays = unsmoothedDates.filter((d) => (otherLoad[d] ?? 0) >= 2);
+  $: rawBusyDays = unsmoothedDates.filter((d) => (otherLoad[d] ?? 0) >= 2);
   $: effectiveOffsets = smooth ? smoothOffsets(spacedStart, uniqueOffsets, otherLoad) : uniqueOffsets;
   // When not smoothing, effectiveOffsets === uniqueOffsets, so reuse the dates
   // already computed above instead of expanding them a second time.
   $: preview = smooth ? spacedPreview(spacedStart, effectiveOffsets) : unsmoothedDates;
+  $: busyDays = preview.filter((d) => (otherLoad[d] ?? 0) >= 2);
   $: doneCount = topic.sessions.filter((s) => s.done).length;
   $: total = topic.sessions.length;
   $: progress = total ? Math.round((doneCount / total) * 100) : 0;
@@ -219,12 +223,10 @@
     gradeSid = s.id;
   }
 
-  function onGradeChoose(e: CustomEvent<string>) {
+  function onGrade(e: CustomEvent<string>) {
     const sid = gradeSid;
     gradeSid = null;
-    if (sid && GRADE_VALUES.includes(e.detail)) {
-      void run(GradeSession(topic.id, sid, e.detail));
-    }
+    if (sid) void run(GradeSession(topic.id, sid, e.detail));
   }
 </script>
 
@@ -246,7 +248,6 @@
             type="text"
             bind:value={tagDraft}
             on:keydown={tagKeydown}
-            on:blur={addTag}
             list="alltags-{topic.id}"
             placeholder="Add tags — press Enter"
           />
@@ -422,14 +423,18 @@
         {#if spacedCurve === 'log'}
           <p class="preview muted tnum">offsets: {effectiveOffsets.join(', ')} days</p>
         {/if}
-        {#if busyDays.length}
-          <p class="warn">
-            {busyDays.length === 1
-              ? `${formatDate(busyDays[0])} already has 2+ sessions across topics.`
-              : `${busyDays.length} of these days already have 2+ sessions across topics.`}
+        {#if rawBusyDays.length}
+          <p class="warn" class:resolved={smooth && busyDays.length === 0}>
+            {#if smooth && busyDays.length === 0}
+              Shifted off {rawBusyDays.length === 1 ? 'a busy day' : `${rawBusyDays.length} busy days`}. ✓
+            {:else if busyDays.length === 1}
+              {formatDate(busyDays[0])} still has 2+ sessions across topics.
+            {:else}
+              {busyDays.length} of these days still have 2+ sessions across topics.
+            {/if}
             <label class="smooth-toggle">
               <input type="checkbox" bind:checked={smooth} />
-              <span>shift busy days ±1–2</span>
+              <span>shift busy days</span>
             </label>
           </p>
         {/if}
@@ -448,12 +453,7 @@
   <ConfirmModal title={confirmTitle} message={confirmMessage} actions={confirmActions} on:choose={onConfirmChoose} />
 {/if}
 {#if gradeSid}
-  <ConfirmModal
-    title="How did “{topic.name}” go?"
-    message="Your grade re-spaces the remaining reviews, starting from today."
-    actions={GRADE_ACTIONS}
-    on:choose={onGradeChoose}
-  />
+  <GradeModal topicName={topic.name} on:grade={onGrade} on:cancel={() => (gradeSid = null)} />
 {/if}
 
 <style>
@@ -755,6 +755,9 @@
     font-size: 0.76rem;
     color: var(--amber);
     line-height: 1.45;
+  }
+  .warn.resolved {
+    color: var(--green);
   }
 
   .smooth-toggle {

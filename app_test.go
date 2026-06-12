@@ -169,6 +169,43 @@ func TestRescheduleSession(t *testing.T) {
 	}
 }
 
+// countByDate returns how many sessions a topic has on date, split done/pending.
+func countByDate(tp *Topic, date string) (done, pending int) {
+	for _, s := range tp.Sessions {
+		if s.Date != date {
+			continue
+		}
+		if s.Done {
+			done++
+		} else {
+			pending++
+		}
+	}
+	return
+}
+
+func TestRescheduleSessionCoexistsWithDone(t *testing.T) {
+	a := newTestApp(t)
+	topics, _ := a.AddTopic("History", "")
+	id := topics[0].ID
+	a.AddSession(id, day(-2)) // overdue, pending
+	topics, _ = a.AddSession(id, day(0))
+	overdueID := topics[0].Sessions[0].ID
+	todayID := topics[0].Sessions[1].ID
+	a.ToggleSession(id, todayID) // mark today's session done
+
+	// Moving the overdue review onto today (which has only a DONE session)
+	// must NOT drop it — it coexists with the completed one.
+	topics, err := a.RescheduleSession(id, overdueID, day(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, pending := countByDate(topics[0], day(0))
+	if done != 1 || pending != 1 {
+		t.Fatalf("day(0) done=%d pending=%d, want 1 done + 1 pending (coexist)", done, pending)
+	}
+}
+
 func TestRescheduleOverdueSessions(t *testing.T) {
 	a := newTestApp(t)
 
@@ -186,6 +223,14 @@ func TestRescheduleOverdueSessions(t *testing.T) {
 	a.AddSession(shelved, day(-5))
 	a.SetTopicArchived(shelved, true) // archived → untouched
 
+	// Studied-today topic: an overdue pending session plus a DONE session today.
+	// The done one doesn't cover the overdue review, so it still moves to today.
+	topics, _ = a.AddTopic("Studied today", "")
+	studied := topics[3].ID
+	a.AddSession(studied, day(-1))
+	topics, _ = a.AddSession(studied, day(0))
+	a.ToggleSession(studied, topics[3].Sessions[1].ID) // day(0) done
+
 	topics, err := a.RescheduleOverdueSessions()
 	if err != nil {
 		t.Fatal(err)
@@ -202,6 +247,9 @@ func TestRescheduleOverdueSessions(t *testing.T) {
 	}
 	if got := sessionDates(byID[shelved]); !reflect.DeepEqual(got, []string{day(-5)}) {
 		t.Fatalf("archived topic = %v, want untouched", got)
+	}
+	if done, pending := countByDate(byID[studied], day(0)); done != 1 || pending != 1 {
+		t.Fatalf("studied-today topic: day(0) done=%d pending=%d, want 1 done + 1 pending", done, pending)
 	}
 }
 
@@ -262,6 +310,50 @@ func TestGradeSession(t *testing.T) {
 		want := []string{day(0), day(1)}
 		if got := sessionDates(topics[0]); !reflect.DeepEqual(got, want) {
 			t.Fatalf("dates = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("again schedules tomorrow even if tomorrow is already done", func(t *testing.T) {
+		a := newTestApp(t)
+		topics, _ := a.AddTopic("Maths", "")
+		id := topics[0].ID
+		a.AddSession(id, day(0))
+		topics, _ = a.AddSession(id, day(1))
+		a.ToggleSession(id, topics[0].Sessions[1].ID) // day(1) reviewed early, done
+		gradedID := topics[0].Sessions[0].ID
+
+		topics, err := a.GradeSession(id, gradedID, "again")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A done session on tomorrow must not swallow the forced re-review:
+		// a new pending session is scheduled for tomorrow, coexisting with it.
+		if done, pending := countByDate(topics[0], day(1)); done != 1 || pending != 1 {
+			t.Fatalf("day(1) done=%d pending=%d, want 1 done + 1 pending", done, pending)
+		}
+	})
+
+	t.Run("again forces tomorrow past a done session, not after it", func(t *testing.T) {
+		a := newTestApp(t)
+		topics, _ := a.AddTopic("Maths", "")
+		id := topics[0].ID
+		a.AddSession(id, day(0))
+		a.AddSession(id, day(1))
+		topics, _ = a.AddSession(id, day(5))
+		a.ToggleSession(id, topics[0].Sessions[1].ID) // day(1) done
+		gradedID := topics[0].Sessions[0].ID
+
+		topics, err := a.GradeSession(id, gradedID, "again")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The remaining future review (was day(5)) re-anchors to tomorrow; the
+		// done day(1) no longer pushes it out to day(2).
+		if done, pending := countByDate(topics[0], day(1)); done != 1 || pending != 1 {
+			t.Fatalf("day(1) done=%d pending=%d, want first review on tomorrow alongside the done one", done, pending)
+		}
+		if _, pending := countByDate(topics[0], day(2)); pending != 0 {
+			t.Fatalf("day(2) should have no review; the forced tomorrow was not bumped")
 		}
 	})
 

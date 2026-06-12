@@ -6,7 +6,7 @@
   import { topicHex } from './colors';
   import ConfirmModal from './ConfirmModal.svelte';
   import type { ModalAction } from './ConfirmModal.svelte';
-  import { GRADE_ACTIONS, GRADE_VALUES } from './grades';
+  import GradeModal from './GradeModal.svelte';
 
   export let topics: main.Topic[] = [];
 
@@ -121,10 +121,10 @@
     }
   }
 
-  async function onGradeChoose(e: CustomEvent<string>) {
+  async function onGrade(e: CustomEvent<string>) {
     const target = gradeTarget;
     gradeTarget = null;
-    if (!target || !GRADE_VALUES.includes(e.detail)) return;
+    if (!target || busy) return;
     busy = true;
     try {
       dispatch('changed', await GradeSession(target.topicId, target.sessionId, e.detail));
@@ -218,12 +218,7 @@
   />
 {/if}
 {#if gradeTarget}
-  <ConfirmModal
-    title="How did “{gradeTarget.topicName}” go?"
-    message="Your grade re-spaces the remaining reviews, starting from today."
-    actions={GRADE_ACTIONS}
-    on:choose={onGradeChoose}
-  />
+  <GradeModal topicName={gradeTarget.topicName} on:grade={onGrade} on:cancel={() => (gradeTarget = null)} />
 {/if}
 
 <style>

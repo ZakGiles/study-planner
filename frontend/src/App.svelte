@@ -14,8 +14,7 @@
   import TopicCard from './lib/TopicCard.svelte';
   import Calendar from './lib/Calendar.svelte';
   import Stats from './lib/Stats.svelte';
-  import ConfirmModal from './lib/ConfirmModal.svelte';
-  import { GRADE_ACTIONS, GRADE_VALUES } from './lib/grades';
+  import GradeModal from './lib/GradeModal.svelte';
   import { formatDate, relativeLabel, daysFromToday, sessionStatus } from './lib/dates';
   import { topicHex } from './lib/colors';
   import { dndzone } from 'svelte-dnd-action';
@@ -123,20 +122,25 @@
   // grade re-spaces the remaining schedule.
   let gradeTarget: { topicId: string; sessionId: string; topicName: string } | null = null;
 
+  let grading = false;
+
   function agendaCheckClick(e: Event, item: AgendaItem) {
     if (!item.adaptive) return; // plain toggle proceeds via on:change
     e.preventDefault();
     gradeTarget = { topicId: item.topicId, sessionId: item.sessionId, topicName: item.topicName };
   }
 
-  async function onGradeChoose(e: CustomEvent<string>) {
+  async function onGrade(e: CustomEvent<string>) {
     const target = gradeTarget;
     gradeTarget = null;
-    if (!target || !GRADE_VALUES.includes(e.detail)) return;
+    if (!target || grading) return;
+    grading = true;
     try {
       topics = await GradeSession(target.topicId, target.sessionId, e.detail);
     } catch (err) {
       showError(String(err));
+    } finally {
+      grading = false;
     }
   }
 
@@ -517,11 +521,10 @@
 </div>
 
 {#if gradeTarget}
-  <ConfirmModal
-    title="How did “{gradeTarget.topicName}” go?"
-    message="Your grade re-spaces the remaining reviews, starting from today."
-    actions={GRADE_ACTIONS}
-    on:choose={onGradeChoose}
+  <GradeModal
+    topicName={gradeTarget.topicName}
+    on:grade={onGrade}
+    on:cancel={() => (gradeTarget = null)}
   />
 {/if}
 

@@ -125,15 +125,16 @@ export function smoothOffsets(
   const out: number[] = [];
   const sorted = Array.from(new Set(offsets)).sort((a, b) => a - b);
   sorted.forEach((n, i) => {
+    // The first offset (the start session) is pinned; the rest may shift.
     let pick: number | null = i === 0 || free(n) ? n : null;
-    if (pick === null) {
-      for (const delta of [1, -1, 2, -2]) {
-        if (free(n + delta)) {
-          pick = n + delta;
-          break;
-        }
-      }
+    // Widen the search outward (preferring later), honouring the load cap, up
+    // to a generous window before giving up.
+    for (let delta = 1; pick === null && delta <= 14; delta++) {
+      if (free(n + delta)) pick = n + delta;
+      else if (free(n - delta)) pick = n - delta;
     }
+    // Last resort, only when no day within the window is under the cap: take
+    // the nearest day not already used, so the session is never dropped.
     for (let m = n; pick === null; m++) {
       if (!placed.has(m)) pick = m;
     }

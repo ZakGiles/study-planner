@@ -329,13 +329,10 @@ func (a *App) AddSpacedSessions(topicID, startDate string, intervals []int, repl
 // DeleteSession removes a single study date from a topic.
 func (a *App) DeleteSession(topicID, sessionID string) ([]*Topic, error) {
 	return a.mutateTopic(topicID, func(t *Topic) error {
-		for i, s := range t.Sessions {
-			if s.ID == sessionID {
-				t.Sessions = append(t.Sessions[:i], t.Sessions[i+1:]...)
-				return nil
-			}
+		if !t.removeSession(sessionID) {
+			return errors.New("session not found")
 		}
-		return errors.New("session not found")
+		return nil
 	})
 }
 
@@ -389,14 +386,12 @@ func (a *App) RescheduleSession(topicID, sessionID, date string) ([]*Topic, erro
 		if target.Date == date {
 			return nil
 		}
+		// A pending session already on that day makes the move redundant, so
+		// drop the moved one (merge). A done session there is historical and
+		// doesn't block — the moved review coexists with it.
 		for _, s := range t.Sessions {
-			if s.ID != sessionID && s.Date == date {
-				for j, x := range t.Sessions {
-					if x.ID == sessionID {
-						t.Sessions = append(t.Sessions[:j], t.Sessions[j+1:]...)
-						break
-					}
-				}
+			if s.ID != sessionID && !s.Done && s.Date == date {
+				t.removeSession(sessionID)
 				return nil
 			}
 		}
@@ -406,8 +401,10 @@ func (a *App) RescheduleSession(topicID, sessionID, date string) ([]*Topic, erro
 }
 
 // RescheduleOverdueSessions moves every overdue, not-done session of every
-// active topic to today — the agenda's one-click catch-up. A topic ends up
-// with at most one session today; surplus overdue ones are removed as covered.
+// active topic to today — the agenda's one-click catch-up. A topic ends up with
+// at most one pending session today; surplus overdue ones are removed as
+// covered. A done session already on today doesn't count as covering: the
+// overdue review still moves to today and coexists with it.
 func (a *App) RescheduleOverdueSessions() ([]*Topic, error) {
 	return a.mutate(func() error {
 		today := a.now().Format(dateLayout)
@@ -415,13 +412,7 @@ func (a *App) RescheduleOverdueSessions() ([]*Topic, error) {
 			if t.Archived {
 				continue
 			}
-			hasToday := false
-			for _, s := range t.Sessions {
-				if s.Date == today {
-					hasToday = true
-					break
-				}
-			}
+			hasToday := t.hasPendingOn(today)
 			kept := t.Sessions[:0]
 			for _, s := range t.Sessions {
 				if !s.Done && s.Date < today {
@@ -481,10 +472,17 @@ func (a *App) GradeSession(topicID, sessionID, grade string) ([]*Topic, error) {
 		if err != nil {
 			return err
 		}
+		// Only pending sessions occupy a day. Done sessions are historical, so
+		// the re-spaced reviews may land on (and coexist with) a completed day —
+		// notably, grading "again" can still schedule tomorrow even if an early
+		// review was already completed there.
 		var future []*Session
 		occupied := make(map[string]bool)
 		for _, s := range t.Sessions {
-			if !s.Done && s.Date > graded.Date {
+			if s.Done {
+				continue
+			}
+			if s.Date > graded.Date {
 				future = append(future, s)
 			} else {
 				occupied[s.Date] = true
@@ -515,7 +513,10 @@ func (a *App) GradeSession(topicID, sessionID, grade string) ([]*Topic, error) {
 			prev = next
 		}
 		if grade == "again" && len(future) == 0 {
-			t.addDates([]string{today.AddDate(0, 0, 1).Format(dateLayout)})
+			tomorrow := today.AddDate(0, 0, 1).Format(dateLayout)
+			if !occupied[tomorrow] {
+				t.Sessions = append(t.Sessions, &Session{ID: uuid.NewString(), Date: tomorrow})
+			}
 		}
 		return nil
 	})
