@@ -23,7 +23,9 @@
     logOffsets,
     spacedPreview,
     smoothOffsets,
+    plural,
   } from './dates';
+  import { makeMutator } from './mutate';
   import { TOPIC_COLORS, topicHex } from './colors';
   import ConfirmModal from './ConfirmModal.svelte';
   import type { ModalAction } from './ConfirmModal.svelte';
@@ -107,18 +109,11 @@
   $: total = topic.sessions.length;
   $: progress = total ? Math.round((doneCount / total) * 100) : 0;
 
-  async function run(p: Promise<main.Topic[]>): Promise<boolean> {
-    busy = true;
-    try {
-      dispatch('changed', await p);
-      return true;
-    } catch (e) {
-      dispatch('error', String(e));
-      return false;
-    } finally {
-      busy = false;
-    }
-  }
+  const run = makeMutator({
+    topics: (t) => dispatch('changed', t),
+    error: (m) => dispatch('error', m),
+    busy: (b) => (busy = b),
+  });
 
   function startEdit() {
     editName = topic.name;
@@ -163,14 +158,13 @@
   // implement the JS dialog delegate, which Wails doesn't.)
   let confirmKind: 'generate' | 'delete' | null = null;
 
-  $: plural = total === 1 ? '' : 's';
   $: confirmTitle = confirmKind === 'delete' ? `Delete “${topic.name}”?` : 'Topic already has study dates';
   $: confirmMessage =
     confirmKind === 'delete'
       ? total > 0
-        ? `This permanently removes the topic and its ${total} study date${plural}.`
+        ? `This permanently removes the topic and its ${total} study date${plural(total)}.`
         : 'This permanently removes the topic.'
-      : `“${topic.name}” has ${total} study date${plural}. What should the new schedule do with ${total === 1 ? 'it' : 'them'}?`;
+      : `“${topic.name}” has ${total} study date${plural(total)}. What should the new schedule do with ${total === 1 ? 'it' : 'them'}?`;
   $: confirmActions =
     confirmKind === 'delete'
       ? ([
@@ -188,7 +182,7 @@
             value: 'replace',
             label: 'Replace schedule',
             kind: 'danger',
-            detail: `Clear the ${total} current date${plural} (including completed ones) and start fresh.`,
+            detail: `Clear the ${total} current date${plural(total)} (including completed ones) and start fresh.`,
           },
           { value: 'cancel', label: 'Cancel', kind: 'ghost' },
         ] as ModalAction[]);
@@ -419,7 +413,7 @@
       {/if}
 
       {#if preview.length}
-        <p class="preview tnum">→ {preview.length} session{preview.length === 1 ? '' : 's'}: {formatDate(preview[0])}{preview.length > 1 ? ` … ${formatDate(preview[preview.length - 1])}` : ''}</p>
+        <p class="preview tnum">→ {preview.length} session{plural(preview.length)}: {formatDate(preview[0])}{preview.length > 1 ? ` … ${formatDate(preview[preview.length - 1])}` : ''}</p>
         {#if spacedCurve === 'log'}
           <p class="preview muted tnum">offsets: {effectiveOffsets.join(', ')} days</p>
         {/if}
