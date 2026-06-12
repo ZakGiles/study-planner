@@ -15,6 +15,7 @@
   import Calendar from './lib/Calendar.svelte';
   import Stats from './lib/Stats.svelte';
   import GradeModal from './lib/GradeModal.svelte';
+  import { openModalCount } from './lib/ConfirmModal.svelte';
   import { formatDate, relativeLabel, daysFromToday, sessionStatus } from './lib/dates';
   import { topicHex } from './lib/colors';
   import { dndzone } from 'svelte-dnd-action';
@@ -52,7 +53,9 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.metaKey || e.ctrlKey || e.altKey || isTyping() || gradeTarget) return;
+    // $openModalCount covers every modal in the app, including ones owned by
+    // child components — shortcuts must not steal focus from behind an overlay.
+    if (e.metaKey || e.ctrlKey || e.altKey || isTyping() || $openModalCount > 0) return;
     if (activeTab !== 'topics') return;
     if (e.key === 'n') {
       e.preventDefault();
@@ -122,25 +125,23 @@
   // grade re-spaces the remaining schedule.
   let gradeTarget: { topicId: string; sessionId: string; topicName: string } | null = null;
 
-  let grading = false;
-
   function agendaCheckClick(e: Event, item: AgendaItem) {
     if (!item.adaptive) return; // plain toggle proceeds via on:change
     e.preventDefault();
     gradeTarget = { topicId: item.topicId, sessionId: item.sessionId, topicName: item.topicName };
   }
 
+  // No in-flight guard here: grading the same session twice is impossible (the
+  // modal unmounts on the first choice) and concurrent grades of different
+  // sessions are safe — a guard would only drop a grade silently.
   async function onGrade(e: CustomEvent<string>) {
     const target = gradeTarget;
     gradeTarget = null;
-    if (!target || grading) return;
-    grading = true;
+    if (!target) return;
     try {
       topics = await GradeSession(target.topicId, target.sessionId, e.detail);
     } catch (err) {
       showError(String(err));
-    } finally {
-      grading = false;
     }
   }
 

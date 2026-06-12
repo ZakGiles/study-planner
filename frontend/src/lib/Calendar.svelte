@@ -121,10 +121,14 @@
     }
   }
 
+  // No `busy` pre-check: it is also set by toggles and quick-add, so guarding
+  // on it would silently drop a grade picked while an unrelated call is in
+  // flight. Double-grading the same session is impossible — the modal unmounts
+  // on the first choice.
   async function onGrade(e: CustomEvent<string>) {
     const target = gradeTarget;
     gradeTarget = null;
-    if (!target || busy) return;
+    if (!target) return;
     busy = true;
     try {
       dispatch('changed', await GradeSession(target.topicId, target.sessionId, e.detail));

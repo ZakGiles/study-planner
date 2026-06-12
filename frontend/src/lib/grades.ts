@@ -11,4 +11,6 @@ export const GRADE_ACTIONS: ModalAction[] = [
   { value: 'cancel', label: 'Cancel', kind: 'ghost' },
 ];
 
-export const GRADE_VALUES = ['again', 'hard', 'good', 'easy'];
+// Derived from GRADE_ACTIONS so the two can never drift: everything except the
+// dismiss action is a grade the backend accepts.
+export const GRADE_VALUES = GRADE_ACTIONS.filter((a) => a.value !== 'cancel').map((a) => a.value);

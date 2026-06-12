@@ -110,6 +110,30 @@ func (t *Topic) hasPendingOn(date string) bool {
 	return false
 }
 
+// pendingDates returns the set of dates holding a not-done session — the
+// domain of the one-pending-session-per-day invariant that hasPendingOn checks
+// pointwise. Scheduling code that places multiple dates seeds its collision
+// set from this.
+func (t *Topic) pendingDates() map[string]bool {
+	m := make(map[string]bool, len(t.Sessions))
+	for _, s := range t.Sessions {
+		if !s.Done {
+			m[s.Date] = true
+		}
+	}
+	return m
+}
+
+// findSession returns the session with the given id, or nil.
+func (t *Topic) findSession(id string) *Session {
+	for _, s := range t.Sessions {
+		if s.ID == id {
+			return s
+		}
+	}
+	return nil
+}
+
 // removeSession drops the session with the given id, returning whether it was
 // found. The caller must hold the store lock.
 func (t *Topic) removeSession(id string) bool {

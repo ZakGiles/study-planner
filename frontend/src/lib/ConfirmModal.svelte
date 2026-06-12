@@ -1,4 +1,11 @@
 <script lang="ts" context="module">
+  import { writable } from 'svelte/store';
+
+  // Count of mounted ConfirmModals (GradeModal wraps one too). Global keyboard
+  // shortcuts subscribe to this so they stay inert while any modal is open —
+  // each component owns its modal state, so no single component can know.
+  export const openModalCount = writable(0);
+
   // A modal action. Actions with a `detail` or a `color` render as stacked
   // choice buttons (color adds a tinted dot); the rest form a regular button
   // row underneath. Dismissing the modal (Escape / backdrop click) dispatches
@@ -27,7 +34,11 @@
   $: row = actions.filter((a) => !a.detail && !a.color);
 
   let panel: HTMLElement;
-  onMount(() => panel?.querySelector<HTMLElement>('button')?.focus());
+  onMount(() => {
+    openModalCount.update((n) => n + 1);
+    panel?.querySelector<HTMLElement>('button')?.focus();
+    return () => openModalCount.update((n) => n - 1);
+  });
 
   function focusables(): HTMLElement[] {
     return panel
@@ -130,6 +141,11 @@
 
   .panel {
     width: min(92vw, 440px);
+    /* Long choice lists (e.g. the calendar's topic picker) scroll inside the
+       panel instead of overflowing the non-scrollable fixed overlay. */
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     background: var(--surface-2);
     border: 1px solid var(--border-strong);
     border-radius: var(--r-lg);

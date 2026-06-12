@@ -340,19 +340,18 @@ func (a *App) DeleteSession(topicID, sessionID string) ([]*Topic, error) {
 // clearing) the completion time so stats can track when studying happened.
 func (a *App) ToggleSession(topicID, sessionID string) ([]*Topic, error) {
 	return a.mutateTopic(topicID, func(t *Topic) error {
-		for _, s := range t.Sessions {
-			if s.ID == sessionID {
-				s.Done = !s.Done
-				if s.Done {
-					now := a.now()
-					s.CompletedAt = &now
-				} else {
-					s.CompletedAt = nil
-				}
-				return nil
-			}
+		s := t.findSession(sessionID)
+		if s == nil {
+			return errors.New("session not found")
 		}
-		return errors.New("session not found")
+		s.Done = !s.Done
+		if s.Done {
+			now := a.now()
+			s.CompletedAt = &now
+		} else {
+			s.CompletedAt = nil
+		}
+		return nil
 	})
 }
 
@@ -373,13 +372,7 @@ func (a *App) RescheduleSession(topicID, sessionID, date string) ([]*Topic, erro
 		return nil, errors.New("date must be in YYYY-MM-DD format")
 	}
 	return a.mutateTopic(topicID, func(t *Topic) error {
-		var target *Session
-		for _, s := range t.Sessions {
-			if s.ID == sessionID {
-				target = s
-				break
-			}
-		}
+		target := t.findSession(sessionID)
 		if target == nil {
 			return errors.New("session not found")
 		}
@@ -389,11 +382,9 @@ func (a *App) RescheduleSession(topicID, sessionID, date string) ([]*Topic, erro
 		// A pending session already on that day makes the move redundant, so
 		// drop the moved one (merge). A done session there is historical and
 		// doesn't block — the moved review coexists with it.
-		for _, s := range t.Sessions {
-			if s.ID != sessionID && !s.Done && s.Date == date {
-				t.removeSession(sessionID)
-				return nil
-			}
+		if t.hasPendingOn(date) {
+			t.removeSession(sessionID)
+			return nil
 		}
 		target.Date = date
 		return nil
@@ -451,13 +442,7 @@ func (a *App) GradeSession(topicID, sessionID, grade string) ([]*Topic, error) {
 		return nil, errors.New("grade must be one of: again, hard, good, easy")
 	}
 	return a.mutateTopic(topicID, func(t *Topic) error {
-		var graded *Session
-		for _, s := range t.Sessions {
-			if s.ID == sessionID {
-				graded = s
-				break
-			}
-		}
+		graded := t.findSession(sessionID)
 		if graded == nil {
 			return errors.New("session not found")
 		}
@@ -472,20 +457,18 @@ func (a *App) GradeSession(topicID, sessionID, grade string) ([]*Topic, error) {
 		if err != nil {
 			return err
 		}
-		// Only pending sessions occupy a day. Done sessions are historical, so
-		// the re-spaced reviews may land on (and coexist with) a completed day —
-		// notably, grading "again" can still schedule tomorrow even if an early
-		// review was already completed there.
+		// Only pending sessions occupy a day (pendingDates) — done sessions are
+		// historical, so the re-spaced reviews may land on (and coexist with) a
+		// completed day; notably, grading "again" can still schedule tomorrow
+		// even if an early review was already completed there. Sessions after
+		// the graded one are about to be rewritten, so their old dates leave
+		// the collision set.
+		occupied := t.pendingDates()
 		var future []*Session
-		occupied := make(map[string]bool)
 		for _, s := range t.Sessions {
-			if s.Done {
-				continue
-			}
-			if s.Date > graded.Date {
+			if !s.Done && s.Date > graded.Date {
 				future = append(future, s)
-			} else {
-				occupied[s.Date] = true
+				delete(occupied, s.Date)
 			}
 		}
 		sort.SliceStable(future, func(i, j int) bool { return future[i].Date < future[j].Date })
