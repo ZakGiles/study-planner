@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 @font-face {
   font-family: "Hanken Grotesk";
   font-style: normal;
@@ -14,424 +18,353 @@
   src: url("assets/fonts/bricolage-grotesque.woff2") format("woff2");
 }
 
-:root {
-  color-scheme: dark;
+/* Design tokens. Colours/radii/shadows are surfaced to Tailwind through
+   tailwind.config.cjs; the dark default and the [data-theme="light"] override
+   keep theme-switching working with plain utility classes. */
+@layer base {
+  :root {
+    color-scheme: dark;
 
-  --bg: #0b1118;
-  --surface: #141d27;
-  --surface-2: #1b2631;
-  --surface-3: #243140;
-  --inset: #0e151d;
+    --bg: #0b1118;
+    --surface: #141d27;
+    --surface-2: #1b2631;
+    --surface-3: #243140;
+    --inset: #0e151d;
+    --sidebar-bg: #101822;
 
-  --border: #243140;
-  --border-soft: #1a242f;
-  --border-strong: #33475a;
+    --border: #243140;
+    --border-soft: #1a242f;
+    --border-strong: #33475a;
 
-  --text: #c9d7e4;
-  --text-strong: #f0f6fb;
-  --muted: #8195a6;
-  --faint: #5b6e7f;
+    --text: #c9d7e4;
+    --text-strong: #f0f6fb;
+    --muted: #8195a6;
+    --faint: #5b6e7f;
 
-  --accent: #36a6f2;
-  --accent-bright: #5cc3ff;
-  --accent-grad: linear-gradient(180deg, #4cb5ff 0%, #2479dd 100%);
-  --accent-grad-hover: linear-gradient(180deg, #5fc1ff 0%, #338ce9 100%);
-  --accent-soft: rgba(54, 166, 242, 0.14);
-  --accent-line: rgba(54, 166, 242, 0.55);
-  --accent-glow: rgba(54, 166, 242, 0.38);
+    --accent: #36a6f2;
+    --accent-bright: #5cc3ff;
+    --accent-grad: #2e8fdd;
+    --accent-grad-hover: #3f9fe9;
+    --accent-soft: rgba(54, 166, 242, 0.14);
+    --accent-line: rgba(54, 166, 242, 0.55);
 
-  --green: #54d6a0;
-  --amber: #ffb13d;
-  --amber-soft: rgba(255, 177, 61, 0.14);
-  --amber-line: rgba(255, 177, 61, 0.5);
-  --red: #ff6b6b;
-  --red-soft: rgba(255, 107, 107, 0.13);
-  --red-line: rgba(255, 107, 107, 0.5);
+    --green: #54d6a0;
+    --amber: #ffb13d;
+    --amber-soft: rgba(255, 177, 61, 0.14);
+    --amber-line: rgba(255, 177, 61, 0.5);
+    --red: #ff6b6b;
+    --red-soft: rgba(255, 107, 107, 0.13);
+    --red-line: rgba(255, 107, 107, 0.5);
 
-  --r-xs: 3px;
-  --r-sm: 4px;
-  --r-md: 6px;
-  --r-lg: 9px;
+    --r-xs: 4px;
+    --r-sm: 6px;
+    --r-md: 8px;
+    --r-lg: 12px;
 
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 8px 24px -10px rgba(0, 0, 0, 0.65);
-  --shadow-pop: 0 14px 40px -14px rgba(0, 0, 0, 0.75);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.25);
+    --shadow-2: 0 6px 18px -10px rgba(0, 0, 0, 0.5);
+    --shadow-pop: 0 14px 40px -14px rgba(0, 0, 0, 0.6);
 
-  --topbar-bg: rgba(12, 18, 25, 0.78);
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-
-  --content: 880px;
-  --font-display: "Bricolage Grotesque", "Hanken Grotesk", ui-sans-serif, sans-serif;
-  --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, sans-serif;
-}
-
-/* Light theme: same structure, inverted values. Toggled by setting
-   data-theme="light" on <html>; the default (no attribute) stays dark. */
-[data-theme='light'] {
-  color-scheme: light;
-
-  --bg: #eef2f6;
-  --surface: #ffffff;
-  --surface-2: #f3f6f9;
-  --surface-3: #e8edf3;
-  --inset: #e3e9ef;
-
-  --border: #d8e0e8;
-  --border-soft: #e5eaf0;
-  --border-strong: #b9c7d4;
-
-  --text: #3a4d5f;
-  --text-strong: #0f1d2a;
-  --muted: #62788c;
-  --faint: #90a3b4;
-
-  --accent: #1f8fe0;
-  --accent-bright: #1679c4;
-  --accent-grad: linear-gradient(180deg, #3da4ef 0%, #1c74cf 100%);
-  --accent-grad-hover: linear-gradient(180deg, #4fb0f6 0%, #2a82dc 100%);
-  --accent-soft: rgba(31, 143, 224, 0.12);
-  --accent-line: rgba(31, 143, 224, 0.5);
-  --accent-glow: rgba(31, 143, 224, 0.25);
-
-  --green: #1fa873;
-  --amber: #b87408;
-  --amber-soft: rgba(184, 116, 8, 0.12);
-  --amber-line: rgba(184, 116, 8, 0.45);
-  --red: #d94f4f;
-  --red-soft: rgba(217, 79, 79, 0.1);
-  --red-line: rgba(217, 79, 79, 0.45);
-
-  --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.07);
-  --shadow-2: 0 8px 24px -10px rgba(16, 24, 40, 0.18);
-  --shadow-pop: 0 14px 40px -14px rgba(16, 24, 40, 0.3);
-
-  --topbar-bg: rgba(255, 255, 255, 0.82);
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html {
-  background-color: var(--bg);
-  color: var(--text);
-}
-
-body {
-  margin: 0;
-  color: var(--text);
-  font-family: var(--font-body);
-  font-feature-settings: "ss01", "cv01";
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  background:
-    radial-gradient(1100px 560px at 50% -160px, rgba(54, 166, 242, 0.12), transparent 62%),
-    radial-gradient(900px 520px at 100% -40px, rgba(36, 121, 221, 0.08), transparent 58%),
-    linear-gradient(180deg, #0d141d 0%, #0a0f15 100%);
-  background-attachment: fixed;
-  background-repeat: no-repeat;
-}
-
-[data-theme='light'] body {
-  background:
-    radial-gradient(1100px 560px at 50% -160px, rgba(31, 143, 224, 0.09), transparent 62%),
-    radial-gradient(900px 520px at 100% -40px, rgba(28, 116, 207, 0.06), transparent 58%),
-    linear-gradient(180deg, #f1f5f9 0%, #e9eef4 100%);
-  background-attachment: fixed;
-  background-repeat: no-repeat;
-}
-
-[data-theme='light'] body::before {
-  opacity: 0.018;
-}
-
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.025;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
-#app {
-  position: relative;
-  z-index: 1;
-  height: 100vh;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-}
-
-.tnum {
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
-}
-
-.muted {
-  color: var(--muted);
-}
-
-::selection {
-  background: var(--accent-soft);
-  color: var(--text-strong);
-}
-
-#app::-webkit-scrollbar {
-  width: 13px;
-}
-#app::-webkit-scrollbar-track {
-  background: transparent;
-}
-#app::-webkit-scrollbar-thumb {
-  background: var(--surface-3);
-  border-radius: 99px;
-  border: 4px solid transparent;
-  background-clip: padding-box;
-}
-#app::-webkit-scrollbar-thumb:hover {
-  background: var(--border-strong);
-  background-clip: padding-box;
-}
-
-input[type="text"],
-input[type="date"],
-input[type="number"],
-textarea {
-  font: inherit;
-  color: var(--text-strong);
-  background: var(--inset);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 0.55rem 0.7rem;
-  outline: none;
-  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
-}
-
-input[type="text"]:hover,
-input[type="date"]:hover,
-input[type="number"]:hover,
-textarea:hover {
-  border-color: var(--border-strong);
-}
-
-input[type="text"]:focus,
-input[type="date"]:focus,
-input[type="number"]:focus,
-textarea:focus {
-  border-color: var(--accent);
-  background: var(--surface-2);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-::placeholder {
-  color: var(--faint);
-}
-
-textarea {
-  resize: vertical;
-  line-height: 1.45;
-}
-
-input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(0.75);
-  cursor: pointer;
-  opacity: 0.65;
-  transition: opacity 0.15s ease;
-}
-input[type="date"]:hover::-webkit-calendar-picker-indicator {
-  opacity: 1;
-}
-
-input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  margin: 0;
-  width: 18px;
-  height: 18px;
-  flex: 0 0 auto;
-  position: relative;
-  border: 1.5px solid var(--border-strong);
-  border-radius: var(--r-xs);
-  background: var(--inset);
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
-}
-input[type="checkbox"]:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-input[type="checkbox"]:checked {
-  background: var(--accent-grad);
-  border-color: var(--accent-bright);
-}
-input[type="checkbox"]:checked::after {
-  content: "";
-  position: absolute;
-  left: 5px;
-  top: 1.5px;
-  width: 5px;
-  height: 9px;
-  border: solid #fff;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-  transform-origin: center;
-  animation: check-pop 0.2s var(--ease-out);
-}
-input[type="checkbox"]:focus-visible {
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-input[type="checkbox"]:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-@keyframes check-pop {
-  from {
-    opacity: 0;
-    transform: rotate(45deg) scale(0.4);
+    --content: 880px;
+    --font-display: "Bricolage Grotesque", "Hanken Grotesk", ui-sans-serif, sans-serif;
+    --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  to {
+
+  [data-theme='light'] {
+    color-scheme: light;
+
+    --bg: #eef2f6;
+    --surface: #ffffff;
+    --surface-2: #f3f6f9;
+    --surface-3: #e8edf3;
+    --inset: #e3e9ef;
+    --sidebar-bg: #ffffff;
+
+    --border: #d8e0e8;
+    --border-soft: #e5eaf0;
+    --border-strong: #b9c7d4;
+
+    --text: #3a4d5f;
+    --text-strong: #0f1d2a;
+    --muted: #62788c;
+    --faint: #90a3b4;
+
+    --accent: #1f8fe0;
+    --accent-bright: #1679c4;
+    --accent-grad: #1f86d4;
+    --accent-grad-hover: #2d95e2;
+    --accent-soft: rgba(31, 143, 224, 0.12);
+    --accent-line: rgba(31, 143, 224, 0.5);
+
+    --green: #1fa873;
+    --amber: #b87408;
+    --amber-soft: rgba(184, 116, 8, 0.12);
+    --amber-line: rgba(184, 116, 8, 0.45);
+    --red: #d94f4f;
+    --red-soft: rgba(217, 79, 79, 0.1);
+    --red-line: rgba(217, 79, 79, 0.45);
+
+    --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06);
+    --shadow-2: 0 6px 18px -10px rgba(16, 24, 40, 0.14);
+    --shadow-pop: 0 14px 40px -14px rgba(16, 24, 40, 0.25);
+  }
+
+  html,
+  body {
+    height: 100%;
+    /* Lock the document so the OS rubber-band / overscroll bounce never fires —
+       only the inner .content column scrolls. */
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  html {
+    background-color: var(--bg);
+    color: var(--text);
+  }
+
+  body {
+    margin: 0;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-feature-settings: "ss01", "cv01";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    background: var(--bg);
+  }
+
+  #app {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  ::placeholder {
+    color: var(--faint);
+  }
+
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--text-strong);
+  }
+
+  /* Form controls — styled globally so every instance stays consistent. */
+  input[type="text"],
+  input[type="date"],
+  input[type="number"],
+  textarea {
+    font: inherit;
+    color: var(--text-strong);
+    background: var(--inset);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 0.55rem 0.7rem;
+    outline: none;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+  }
+
+  input[type="text"]:hover,
+  input[type="date"]:hover,
+  input[type="number"]:hover,
+  textarea:hover {
+    border-color: var(--border-strong);
+  }
+
+  input[type="text"]:focus,
+  input[type="date"]:focus,
+  input[type="number"]:focus,
+  textarea:focus {
+    border-color: var(--accent);
+    background: var(--surface-2);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  textarea {
+    resize: vertical;
+    line-height: 1.45;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.75);
+    cursor: pointer;
+    opacity: 0.65;
+    transition: opacity 0.15s ease;
+  }
+  input[type="date"]:hover::-webkit-calendar-picker-indicator {
     opacity: 1;
-    transform: rotate(45deg) scale(1);
+  }
+
+  input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    margin: 0;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    position: relative;
+    border: 1.5px solid var(--border-strong);
+    border-radius: var(--r-xs);
+    background: var(--inset);
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  }
+  /* Highlight the box when its containing row/label is hovered, not only when
+     the pointer is directly over the (small) box itself. .chk-row marks a full
+     row (e.g. a session/agenda item) so hovering anywhere on it counts. */
+  .chk-row:hover input[type="checkbox"]:not(:disabled),
+  label:hover > input[type="checkbox"]:not(:disabled),
+  input[type="checkbox"]:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+  input[type="checkbox"]:checked {
+    background: var(--accent-grad);
+    border-color: var(--accent-bright);
+  }
+  input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 1.5px;
+    width: 5px;
+    height: 9px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    transform-origin: center;
+  }
+  input[type="checkbox"]:focus-visible {
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  input[type="checkbox"]:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* The single scroll container. */
+  .content::-webkit-scrollbar {
+    width: 12px;
+  }
+  .content::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .content::-webkit-scrollbar-thumb {
+    background: var(--surface-3);
+    border-radius: 99px;
+    border: 4px solid transparent;
+    background-clip: padding-box;
+  }
+  .content::-webkit-scrollbar-thumb:hover {
+    background: var(--border-strong);
+    background-clip: padding-box;
   }
 }
 
-.btn {
-  font: inherit;
-  font-weight: 600;
-  font-size: 0.875rem;
-  letter-spacing: 0.01em;
-  border: 1px solid transparent;
-  border-radius: var(--r-sm);
-  padding: 0.55rem 1rem;
-  cursor: pointer;
-  transition: transform 0.12s var(--ease), background 0.16s ease,
-    box-shadow 0.16s ease, border-color 0.16s ease, color 0.16s ease;
-}
-
-.btn.primary {
-  background: var(--accent-grad);
-  color: #fff;
-  text-shadow: 0 1px 1px rgba(0, 12, 30, 0.3);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), var(--shadow-1);
-}
-.btn.primary:hover:not(:disabled) {
-  background: var(--accent-grad-hover);
-  transform: translateY(-1px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    0 8px 18px -8px var(--accent-glow), 0 0 22px -6px var(--accent-glow);
-}
-.btn.primary:active:not(:disabled) {
-  transform: translateY(0);
-  filter: brightness(0.96);
-}
-
-.btn.ghost {
-  background: var(--surface-2);
-  border-color: var(--border);
-  color: var(--text);
-}
-.btn.ghost:hover:not(:disabled) {
-  background: var(--surface-3);
-  border-color: var(--border-strong);
-  color: var(--text-strong);
-  transform: translateY(-1px);
-}
-.btn.ghost:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.btn.danger {
-  background: var(--red-soft);
-  border-color: var(--red-line);
-  color: var(--red);
-}
-.btn.danger:hover:not(:disabled) {
-  background: var(--red);
-  border-color: var(--red);
-  color: #fff;
-  transform: translateY(-1px);
-  box-shadow: 0 8px 18px -8px rgba(255, 107, 107, 0.55);
-}
-.btn.danger:active:not(:disabled) {
-  transform: translateY(0);
-  filter: brightness(0.94);
-}
-
-.btn.sm {
-  padding: 0.3rem 0.65rem;
-  font-size: 0.78rem;
-}
-
-.btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.icon-btn {
-  border: 1px solid transparent;
-  background: transparent;
-  cursor: pointer;
-  font-size: 0.95rem;
-  line-height: 1;
-  padding: 0.34rem;
-  border-radius: var(--r-sm);
-  color: var(--muted);
-  opacity: 0.85;
-  transition: background 0.15s ease, opacity 0.15s ease, color 0.15s ease,
-    border-color 0.15s ease, transform 0.12s var(--ease);
-}
-.icon-btn:hover:not(:disabled) {
-  background: var(--surface-3);
-  border-color: var(--border);
-  color: var(--text-strong);
-  opacity: 1;
-}
-.icon-btn:active:not(:disabled) {
-  transform: scale(0.92);
-}
-.icon-btn.small {
-  font-size: 1.05rem;
-}
-.icon-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.bar {
-  flex: 1;
-  height: 6px;
-  background: var(--inset);
-  border: 1px solid var(--border-soft);
-  border-radius: 99px;
-  overflow: hidden;
-}
-
-.fill {
-  height: 100%;
-  background: var(--accent-grad);
-  border-radius: 99px;
-  box-shadow: 0 0 12px -2px var(--accent-glow);
-  transition: width 0.4s var(--ease);
-}
-
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center font-body font-semibold text-sm rounded-sm border border-transparent px-4 py-[0.55rem] cursor-pointer transition;
+    letter-spacing: 0.01em;
   }
-  to {
+  .btn:disabled {
+    @apply opacity-40 cursor-not-allowed;
+  }
+  .btn.primary {
+    @apply text-white;
+    background: var(--accent-grad);
+  }
+  .btn.primary:hover:not(:disabled) {
+    background: var(--accent-grad-hover);
+  }
+  .btn.primary:active:not(:disabled) {
+    filter: brightness(0.96);
+  }
+  .btn.ghost {
+    @apply bg-surface-2 text-fg;
+    border-color: var(--border);
+  }
+  .btn.ghost:hover:not(:disabled) {
+    @apply bg-surface-3 text-fg-strong;
+    border-color: var(--border-strong);
+  }
+  .btn.danger {
+    @apply bg-red-soft text-red;
+    border-color: var(--red-line);
+  }
+  .btn.danger:hover:not(:disabled) {
+    @apply text-white;
+    background: var(--red);
+    border-color: var(--red);
+  }
+  .btn.danger:active:not(:disabled) {
+    filter: brightness(0.94);
+  }
+  .btn.sm {
+    @apply px-[0.65rem] py-[0.3rem] text-[0.78rem];
+  }
+
+  .icon-btn {
+    @apply inline-flex items-center justify-center bg-transparent border border-transparent cursor-pointer text-[0.95rem] leading-none p-[0.34rem] rounded-sm text-fg-muted transition;
+    opacity: 0.85;
+  }
+  .icon-btn:hover:not(:disabled) {
+    @apply bg-surface-3 text-fg-strong;
+    border-color: var(--border);
     opacity: 1;
-    transform: translateY(0);
+  }
+  .icon-btn:active:not(:disabled) {
+    transform: scale(0.92);
+  }
+  .icon-btn.small {
+    @apply text-[1.05rem];
+  }
+  .icon-btn:disabled {
+    @apply opacity-30 cursor-not-allowed;
+  }
+
+  /* Segmented control (Spaced/Manual, Fixed/Log curve). */
+  .seg {
+    @apply inline-flex bg-inset border border-line rounded-sm gap-[2px] p-[2px];
+  }
+  .seg button {
+    @apply border-none bg-transparent text-fg-muted px-[0.8rem] py-[0.34rem] rounded-xs cursor-pointer font-body text-[0.8rem] font-semibold transition-colors;
+  }
+  .seg button:hover {
+    @apply text-fg;
+  }
+  .seg button.active {
+    @apply bg-surface-3 text-fg-strong shadow-1;
+  }
+
+  /* Progress bar. */
+  .bar {
+    @apply flex-1 h-[6px] bg-inset rounded-full overflow-hidden;
+    border: 1px solid var(--border-soft);
+  }
+  .fill {
+    @apply h-full bg-accent rounded-full;
+    transition: width 0.4s var(--ease);
   }
 }
 
-.reveal {
-  opacity: 0;
-  animation: rise 0.5s var(--ease-out) forwards;
+@layer utilities {
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+  .muted {
+    color: var(--muted);
+  }
+}
+
+/* Applied for a single frame while the theme swaps, so re-pointing the colour
+   variables doesn't animate every transitioned property. */
+.no-transition *,
+.no-transition *::before,
+.no-transition *::after {
+  transition: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

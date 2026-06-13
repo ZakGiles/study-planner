@@ -99,50 +99,60 @@
     if (c.future) return formatDate(c.iso);
     return `${c.count} session${plural(c.count)} — ${formatDate(c.iso)}`;
   }
+
+  // Heatmap intensity (0–4) → Tailwind utilities, mixing the accent into the
+  // inset so both themes stay legible.
+  const HEAT = [
+    'border border-line-soft bg-inset',
+    'border border-transparent [background:color-mix(in_srgb,var(--accent)_30%,var(--inset))]',
+    'border border-transparent [background:color-mix(in_srgb,var(--accent)_55%,var(--inset))]',
+    'border border-transparent [background:color-mix(in_srgb,var(--accent)_78%,var(--inset))]',
+    'border border-transparent bg-accent-bright',
+  ];
 </script>
 
-<section class="stats">
-  <div class="tiles reveal">
-    <div class="tile">
-      <span class="tile-num tnum">{streaks.current}</span>
-      <span class="tile-label">day streak{streaks.current > 0 ? ' 🔥' : ''}</span>
+<section class="flex flex-col gap-[1.1rem]">
+  <div class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-[0.8rem]">
+    <div class="flex flex-col gap-[0.2rem] rounded-lg border border-line bg-surface px-4 py-[0.9rem] shadow-1">
+      <span class="tnum font-display text-[1.7rem] font-extrabold leading-none text-fg-strong">{streaks.current}</span>
+      <span class="text-[0.78rem] text-fg-muted">day streak{streaks.current > 0 ? ' ✦' : ''}</span>
     </div>
-    <div class="tile">
-      <span class="tile-num tnum">{streaks.longest}</span>
-      <span class="tile-label">longest streak</span>
+    <div class="flex flex-col gap-[0.2rem] rounded-lg border border-line bg-surface px-4 py-[0.9rem] shadow-1">
+      <span class="tnum font-display text-[1.7rem] font-extrabold leading-none text-fg-strong">{streaks.longest}</span>
+      <span class="text-[0.78rem] text-fg-muted">longest streak</span>
     </div>
-    <div class="tile">
-      <span class="tile-num tnum">{totalDone}</span>
-      <span class="tile-label">sessions completed</span>
+    <div class="flex flex-col gap-[0.2rem] rounded-lg border border-line bg-surface px-4 py-[0.9rem] shadow-1">
+      <span class="tnum font-display text-[1.7rem] font-extrabold leading-none text-fg-strong">{totalDone}</span>
+      <span class="text-[0.78rem] text-fg-muted">sessions completed</span>
     </div>
-    <div class="tile">
-      <span class="tile-num tnum">{dueToday}</span>
-      <span class="tile-label">due today</span>
+    <div class="flex flex-col gap-[0.2rem] rounded-lg border border-line bg-surface px-4 py-[0.9rem] shadow-1">
+      <span class="tnum font-display text-[1.7rem] font-extrabold leading-none text-fg-strong">{dueToday}</span>
+      <span class="text-[0.78rem] text-fg-muted">due today</span>
     </div>
   </div>
 
-  <div class="panel reveal">
-    <div class="panel-head">
-      <h2>Last {WEEKS} weeks</h2>
-      <span class="legend">
+  <div class="rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
+    <div class="mb-[0.85rem] flex items-baseline justify-between gap-2">
+      <h2 class="m-0 font-display text-base font-bold text-fg-strong">Last {WEEKS} weeks</h2>
+      <span class="inline-flex items-center gap-[3px] text-[0.7rem] text-fg-faint">
         less
-        {#each [0, 1, 2, 3, 4] as l}<span class="cell l{l}"></span>{/each}
+        {#each [0, 1, 2, 3, 4] as l}<span class="h-[13px] w-[13px] rounded-[3px] {HEAT[l]}"></span>{/each}
         more
       </span>
     </div>
-    <div class="heatmap">
-      <div class="gutter">
+    <div class="flex gap-[6px] overflow-x-auto pb-[0.2rem]">
+      <div class="mt-[17px] grid grid-rows-[repeat(7,13px)] gap-[3px] text-[0.62rem] leading-[13px] text-fg-faint">
         <span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>
       </div>
-      <div class="weeks">
-        <div class="months" style="--weeks:{WEEKS}">
+      <div class="min-w-0">
+        <div class="mb-[3px] grid h-[14px] grid-cols-[repeat(var(--weeks),13px)] gap-[3px] whitespace-nowrap text-[0.62rem] text-fg-faint" style="--weeks:{WEEKS}">
           {#each monthLabels as m}<span>{m}</span>{/each}
         </div>
-        <div class="grid-cols">
+        <div class="flex gap-[3px]">
           {#each weeks as col}
-            <div class="week">
+            <div class="grid grid-rows-[repeat(7,13px)] gap-[3px]">
               {#each col as c (c.iso)}
-                <span class="cell l{c.level}" class:future={c.future} title={cellTitle(c)}></span>
+                <span class="h-[13px] w-[13px] rounded-[3px] {HEAT[c.level]} {c.future ? 'opacity-[0.35]' : ''}" title={cellTitle(c)}></span>
               {/each}
             </div>
           {/each}
@@ -152,17 +162,17 @@
   </div>
 
   {#if byTopic.length}
-    <div class="panel reveal">
-      <div class="panel-head">
-        <h2>By topic</h2>
+    <div class="rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
+      <div class="mb-[0.85rem] flex items-baseline justify-between gap-2">
+        <h2 class="m-0 font-display text-base font-bold text-fg-strong">By topic</h2>
       </div>
-      <ul class="topic-rows">
+      <ul class="m-0 flex list-none flex-col gap-[0.55rem] p-0">
         {#each byTopic as t (t.id)}
-          <li class:archived={t.archived}>
-            <span class="dot" style="--topic:{t.hex}"></span>
-            <span class="name">{t.name}{#if t.archived}<span class="arch-tag">archived</span>{/if}</span>
-            <span class="bar"><span class="fill" style="width:{(t.done / t.total) * 100}%; background:{t.hex}"></span></span>
-            <span class="count tnum">{t.done}/{t.total}</span>
+          <li class="flex items-center gap-[0.6rem] {t.archived ? 'opacity-[0.55]' : ''}">
+            <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{t.hex}"></span>
+            <span class="min-w-0 flex-[0_1_auto] overflow-hidden text-ellipsis whitespace-nowrap text-[0.88rem] text-fg">{t.name}{#if t.archived}<span class="ml-[0.4rem] text-[0.64rem] uppercase tracking-[0.06em] text-fg-faint">archived</span>{/if}</span>
+            <span class="bar min-w-[60px]"><span class="fill" style="width:{(t.done / t.total) * 100}%; background:{t.hex}"></span></span>
+            <span class="tnum shrink-0 text-[0.76rem] text-fg-muted">{t.done}/{t.total}</span>
           </li>
         {/each}
       </ul>
@@ -170,214 +180,3 @@
   {/if}
 </section>
 
-<style>
-  .stats {
-    display: flex;
-    flex-direction: column;
-    gap: 1.1rem;
-  }
-
-  .tiles {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 0.8rem;
-  }
-
-  .tile {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-1);
-    padding: 0.9rem 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-  }
-
-  .tile-num {
-    font-family: var(--font-display);
-    font-weight: 800;
-    font-size: 1.7rem;
-    color: var(--text-strong);
-    line-height: 1;
-  }
-
-  .tile-label {
-    font-size: 0.78rem;
-    color: var(--muted);
-  }
-
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-1);
-    padding: 1rem 1.2rem 1.1rem;
-  }
-
-  .panel-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.5rem;
-    margin-bottom: 0.85rem;
-  }
-
-  .panel-head h2 {
-    margin: 0;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1rem;
-    color: var(--text-strong);
-  }
-
-  .legend {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 0.7rem;
-    color: var(--faint);
-  }
-
-  .heatmap {
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    padding-bottom: 0.2rem;
-  }
-
-  .gutter {
-    display: grid;
-    grid-template-rows: repeat(7, 13px);
-    gap: 3px;
-    margin-top: 17px; /* aligns with cells below the month labels */
-    font-size: 0.62rem;
-    color: var(--faint);
-  }
-  .gutter span {
-    line-height: 13px;
-  }
-
-  .weeks {
-    min-width: 0;
-  }
-
-  .months {
-    display: grid;
-    grid-template-columns: repeat(var(--weeks), 13px);
-    gap: 3px;
-    height: 14px;
-    margin-bottom: 3px;
-    font-size: 0.62rem;
-    color: var(--faint);
-    white-space: nowrap;
-  }
-
-  .grid-cols {
-    display: flex;
-    gap: 3px;
-  }
-
-  .week {
-    display: grid;
-    grid-template-rows: repeat(7, 13px);
-    gap: 3px;
-  }
-
-  .cell {
-    width: 13px;
-    height: 13px;
-    border-radius: 3px;
-    background: var(--inset);
-    border: 1px solid var(--border-soft);
-  }
-
-  .cell.l1 {
-    background: color-mix(in srgb, var(--accent) 30%, var(--inset));
-    border-color: transparent;
-  }
-  .cell.l2 {
-    background: color-mix(in srgb, var(--accent) 55%, var(--inset));
-    border-color: transparent;
-  }
-  .cell.l3 {
-    background: color-mix(in srgb, var(--accent) 78%, var(--inset));
-    border-color: transparent;
-  }
-  .cell.l4 {
-    background: var(--accent-bright);
-    border-color: transparent;
-    box-shadow: 0 0 8px -2px var(--accent-glow);
-  }
-
-  .cell.future {
-    opacity: 0.35;
-  }
-
-  .topic-rows {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
-  }
-
-  .topic-rows li {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-  }
-
-  .topic-rows li.archived {
-    opacity: 0.55;
-  }
-
-  .dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--topic);
-    flex: 0 0 auto;
-  }
-
-  .name {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.88rem;
-    color: var(--text);
-  }
-
-  .arch-tag {
-    margin-left: 0.4rem;
-    font-size: 0.64rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--faint);
-  }
-
-  .bar {
-    flex: 1;
-    height: 6px;
-    min-width: 60px;
-    background: var(--inset);
-    border: 1px solid var(--border-soft);
-    border-radius: 99px;
-    overflow: hidden;
-  }
-
-  .fill {
-    display: block;
-    height: 100%;
-    border-radius: 99px;
-  }
-
-  .count {
-    font-size: 0.76rem;
-    color: var(--muted);
-    flex: 0 0 auto;
-  }
-</style>

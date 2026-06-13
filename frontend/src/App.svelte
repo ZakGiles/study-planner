@@ -1,7 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fly } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
   import type { main } from '../wailsjs/go/models';
   import {
     GetTopics,
@@ -21,7 +19,6 @@
   import { topicHex } from './lib/colors';
   import { dndzone } from 'svelte-dnd-action';
   import type { DndEvent } from 'svelte-dnd-action';
-  import { flip } from 'svelte/animate';
 
   let topics: main.Topic[] = [];
   let activeTab: 'topics' | 'agenda' | 'calendar' | 'stats' = 'topics';
@@ -35,9 +32,19 @@
 
   // Theme is a pure UI preference, persisted locally rather than in the store.
   let theme: 'dark' | 'light' = localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
-  $: {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem('theme', theme);
+  $: applyTheme(theme);
+
+  // Swapping the theme re-points every colour variable; without suspending
+  // transitions for the swap, every element with a hover transition would fade,
+  // animating the whole UI. Disable transitions for the one frame the change
+  // lands in, then restore them so hovers still animate.
+  function applyTheme(t: 'dark' | 'light') {
+    const root = document.documentElement;
+    root.classList.add('no-transition');
+    root.dataset.theme = t;
+    localStorage.setItem('theme', t);
+    void root.offsetWidth; // force a reflow so the swap paints instantly
+    requestAnimationFrame(() => root.classList.remove('no-transition'));
   }
 
   // Keyboard shortcuts: n → new topic, / → search (when not already typing).
@@ -208,10 +215,10 @@
     adaptive: boolean;
   };
 
-  $: agenda = visibleActive
-    .flatMap((t) =>
+  function agendaItems(from: main.Topic[], done: boolean): AgendaItem[] {
+    return from.flatMap((t) =>
       t.sessions
-        .filter((s) => !s.done)
+        .filter((s) => s.done === done)
         .map((s) => ({
           topicId: t.id,
           topicName: t.name,
@@ -220,8 +227,14 @@
           topicColor: t.color,
           adaptive: t.adaptive,
         }))
-    )
-    .sort((a, b) => a.date.localeCompare(b.date)) as AgendaItem[];
+    );
+  }
+
+  $: agenda = agendaItems(visibleActive, false).sort((a, b) => a.date.localeCompare(b.date));
+
+  // Completed sessions, newest first — shown on demand below the agenda.
+  let showPast = false;
+  $: pastAgenda = agendaItems(visibleActive, true).sort((a, b) => b.date.localeCompare(a.date));
 
   // Cross-topic scheduling load (date → planned sessions), used by the cards to
   // warn when a generated schedule would pile onto already-busy days.
@@ -241,87 +254,130 @@
   $: doneSessions = visibleActive.reduce((n, t) => n + t.sessions.filter((s) => s.done).length, 0);
   $: overallPct = totalSessions ? Math.round((doneSessions / totalSessions) * 100) : 0;
 
-  // Group agenda items by date for display.
-  $: agendaGroups = (() => {
+  // Group date-sorted agenda items by date for display.
+  function groupByDate(items: AgendaItem[]) {
     const groups: { date: string; items: AgendaItem[] }[] = [];
-    for (const item of agenda) {
+    for (const item of items) {
       const last = groups[groups.length - 1];
       if (last && last.date === item.date) last.items.push(item);
       else groups.push({ date: item.date, items: [item] });
     }
     return groups;
-  })();
+  }
+
+  $: agendaGroups = groupByDate(agenda);
+  $: pastGroups = groupByDate(pastAgenda);
+
+  // Per-view header copy for the sticky content header.
+  const TAB_META = {
+    topics: { title: 'Topics', sub: "Everything you're revising" },
+    agenda: { title: 'Agenda', sub: "What's coming up next" },
+    calendar: { title: 'Calendar', sub: 'Your month at a glance' },
+    stats: { title: 'Stats', sub: 'Progress and streaks' },
+  } as const;
+  $: tabMeta = TAB_META[activeTab];
+
+  const NAV = [
+    { id: 'topics', label: 'Topics' },
+    { id: 'agenda', label: 'Agenda' },
+    { id: 'calendar', label: 'Calendar' },
+    { id: 'stats', label: 'Stats' },
+  ] as const;
+
+  // Status → Tailwind colour utilities for the agenda day cards.
+  const barClass = (status: string) =>
+    status === 'overdue' ? 'bg-red'
+    : status === 'today' ? 'bg-amber'
+    : status === 'past' ? 'bg-green'
+    : status === 'upcoming' ? 'bg-accent'
+    : 'bg-line-strong';
+  const relClass = (status: string) =>
+    status === 'overdue' ? 'text-red'
+    : status === 'today' ? 'text-amber font-semibold'
+    : 'text-fg-muted';
 </script>
 
 <svelte:window on:keydown={onKeydown} />
 
-<div class="shell">
-  <header class="topbar">
-    <div class="topbar-inner">
-      <div class="brand reveal">
-        <span class="logo" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path
-              d="M3 18.5C6.5 18 8.5 13.5 12 10.5 15.5 7.5 18 5.6 21 5.2"
-              stroke="white"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-            <circle cx="3" cy="18.5" r="2" fill="white" />
-            <circle cx="11.4" cy="11.1" r="2" fill="white" />
-            <circle cx="21" cy="5.2" r="2" fill="white" />
-          </svg>
-        </span>
-        <div class="brand-text">
-          <span class="eyebrow">Spaced repetition</span>
-          <h1>Study Planner</h1>
-        </div>
-      </div>
+<div class="flex h-full min-h-0">
+  <aside class="flex flex-[0_0_232px] flex-col gap-[0.4rem] bg-sidebar px-[0.85rem] pb-4 pt-[1.15rem] border-r border-line max-[720px]:flex-[0_0_60px] max-[720px]:items-center max-[720px]:px-2">
+    <div class="px-[0.45rem] pt-[0.2rem] pb-[1.15rem] max-[720px]:hidden">
+      <span class="block whitespace-nowrap text-[0.57rem] font-bold uppercase tracking-[0.16em] text-accent-bright">Spaced repetition</span>
+      <h1 class="m-0 mt-0.5 whitespace-nowrap font-display text-[1.16rem] font-extrabold leading-[1.05] tracking-[-0.02em] text-fg-strong">Study Planner</h1>
+    </div>
 
-      <div class="top-right reveal">
-        <nav class="tabs">
-          <button class:active={activeTab === 'topics'} on:click={() => (activeTab = 'topics')}>
-            Topics
-          </button>
-          <button class:active={activeTab === 'agenda'} on:click={() => (activeTab = 'agenda')}>
-            Agenda{#if overdueCount}<span class="badge tnum">{overdueCount}</span>{/if}
-          </button>
-          <button class:active={activeTab === 'calendar'} on:click={() => (activeTab = 'calendar')}>
-            Calendar
-          </button>
-          <button class:active={activeTab === 'stats'} on:click={() => (activeTab = 'stats')}>
-            Stats
-          </button>
-        </nav>
+    <nav class="flex flex-col gap-[0.12rem]">
+      {#each NAV as item}
         <button
-          class="icon-btn theme-toggle"
-          title="Switch to {theme === 'dark' ? 'light' : 'dark'} theme"
-          on:click={() => (theme = theme === 'dark' ? 'light' : 'dark')}
+          class="relative flex w-full cursor-pointer items-center gap-[0.7rem] rounded-md px-[0.7rem] py-[0.58rem] text-left text-[0.9rem] font-semibold transition-colors hover:bg-surface-2 hover:text-fg-strong max-[720px]:justify-center max-[720px]:px-0 {activeTab === item.id ? 'bg-accent-soft text-fg-strong' : 'text-fg-muted'}"
+          on:click={() => (activeTab = item.id)}
+          title={item.label}
         >
-          {theme === 'dark' ? '☀️' : '🌙'}
+          {#if activeTab === item.id}
+            <span class="absolute left-[-0.85rem] top-2 bottom-2 w-[3px] rounded-r-[3px] bg-accent max-[720px]:left-[-0.5rem]" aria-hidden="true"></span>
+          {/if}
+          <span class="shrink-0 [&_svg]:h-[18px] [&_svg]:w-[18px] {activeTab === item.id ? 'text-accent-bright' : 'opacity-[0.85]'}">
+            {#if item.id === 'topics'}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3 21 7.5 12 12 3 7.5z" /><path d="M3 12 12 16.5 21 12" /><path d="M3 16.5 12 21l9-4.5" />
+              </svg>
+            {:else if item.id === 'agenda'}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 6h11" /><path d="M9 12h11" /><path d="M9 18h11" />
+                <path d="M4 5.5l1.3 1.3L8 4" /><path d="M4 11.5l1.3 1.3L8 10" /><path d="M4 17.5l1.3 1.3L8 16" />
+              </svg>
+            {:else if item.id === 'calendar'}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="4.5" width="18" height="16.5" rx="2.5" /><path d="M3 9.5h18" /><path d="M8 2.5v4" /><path d="M16 2.5v4" />
+              </svg>
+            {:else}
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <rect x="3" y="11" width="4.5" height="9" rx="1.2" /><rect x="9.75" y="5" width="4.5" height="15" rx="1.2" /><rect x="16.5" y="8" width="4.5" height="12" rx="1.2" />
+              </svg>
+            {/if}
+          </span>
+          <span class="min-w-0 flex-1 max-[720px]:hidden">{item.label}</span>
+          {#if item.id === 'agenda' && overdueCount}
+            <span class="tnum ml-auto rounded-full bg-red px-[0.4rem] py-[0.03rem] text-[0.64rem] font-bold leading-[1.5] text-white max-[720px]:absolute max-[720px]:right-[0.1rem] max-[720px]:top-[0.1rem] max-[720px]:ml-0">{overdueCount}</span>
+          {/if}
         </button>
+      {/each}
+    </nav>
+
+    <div class="mt-auto pt-[0.6rem]">
+      <button
+        class="flex w-full cursor-pointer items-center gap-[0.7rem] rounded-md border border-line bg-transparent px-[0.7rem] py-[0.52rem] text-[0.85rem] font-semibold text-fg-muted transition-colors hover:border-line-strong hover:bg-surface-2 hover:text-fg-strong max-[720px]:justify-center max-[720px]:px-0"
+        title="Switch to {theme === 'dark' ? 'light' : 'dark'} theme"
+        on:click={() => (theme = theme === 'dark' ? 'light' : 'dark')}
+      >
+        <span class="w-[18px] shrink-0 text-center text-base max-[720px]:w-auto" aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>
+        <span class="max-[720px]:hidden">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="content h-full min-w-0 flex-1 overflow-y-auto [overscroll-behavior:none] [scrollbar-gutter:stable]">
+    <div class="sticky top-0 z-10 border-b border-line bg-bg">
+      <div class="mx-auto max-w-content px-[1.6rem] pb-4 pt-[1.15rem] max-[720px]:px-[1.1rem]">
+        <h2 class="m-0 font-display text-[1.5rem] font-extrabold leading-[1.1] tracking-[-0.02em] text-fg-strong">{tabMeta.title}</h2>
+        <span class="mt-[0.12rem] block text-[0.82rem] text-fg-muted">{tabMeta.sub}</span>
       </div>
     </div>
-  </header>
 
-  <main>
+    <div class="mx-auto max-w-content px-[1.6rem] pb-20 pt-6 text-left max-[720px]:px-[1.1rem]">
     {#if loading}
-      <div class="loader">
-        <span class="spinner" aria-hidden="true"></span>
-        <span>Loading…</span>
-      </div>
+      <div class="py-12 text-fg-muted">Loading…</div>
     {:else}
-      {#key activeTab}
-        <div class="view" in:fly={{ y: 12, duration: 280, easing: cubicOut }}>
+        <div>
           {#if activeTab === 'topics'}
-            <section class="panel new-topic reveal">
-              <div class="panel-head">
-                <h2>New topic</h2>
-                <span class="panel-hint">Add something to revise</span>
+            <section class="mb-[1.4rem] rounded-lg border border-line bg-surface px-[1.2rem] py-[1.1rem] shadow-1">
+              <div class="mb-[0.8rem] flex items-baseline justify-between gap-2">
+                <h2 class="m-0 font-display text-base font-bold tracking-[-0.01em] text-fg-strong">New topic</h2>
+                <span class="text-[0.78rem] text-fg-faint">Add something to revise</span>
               </div>
-              <form on:submit|preventDefault={createTopic}>
+              <form class="flex flex-col gap-[0.6rem]" on:submit|preventDefault={createTopic}>
                 <input
-                  class="name-input"
+                  type="text"
                   bind:this={nameInput}
                   bind:value={newName}
                   placeholder="Topic name (e.g. Linear Algebra)"
@@ -331,36 +387,42 @@
                   rows="2"
                   placeholder="Description (optional) — what to cover, resources, goals…"
                 ></textarea>
-                <button class="btn primary" type="submit" disabled={adding || !newName.trim()}>
+                <button class="btn primary self-start" type="submit" disabled={adding || !newName.trim()}>
                   Add topic
                 </button>
               </form>
             </section>
 
             {#if topics.length === 0}
-              <div class="empty reveal">
-                <div class="empty-mark" aria-hidden="true">✦</div>
-                <p class="empty-title">No topics yet</p>
-                <p class="muted">
+              <div class="px-4 py-12 text-center text-fg">
+                <div class="mb-[0.6rem] text-[1.6rem] text-accent-bright opacity-80" aria-hidden="true">✦</div>
+                <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">No topics yet</p>
+                <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">
                   Add your first topic above, then schedule study dates — manually or with a
                   spaced-repetition plan.
                 </p>
               </div>
             {:else}
-              <div class="toolbar reveal">
-                <div class="search">
-                  <input type="text" bind:this={searchInput} bind:value={search} placeholder="Search topics… ( / )" />
+              <div class="mb-[1.1rem] flex flex-col gap-[0.6rem]">
+                <div class="relative flex">
+                  <input class="w-full pr-8" type="text" bind:this={searchInput} bind:value={search} placeholder="Search topics… ( / )" />
                   {#if search}
-                    <button class="search-clear" on:click={() => (search = '')} aria-label="Clear search">×</button>
+                    <button class="absolute right-[0.35rem] top-1/2 -translate-y-1/2 cursor-pointer rounded-xs border-none bg-transparent px-[0.3rem] py-[0.15rem] text-[1.15rem] leading-none text-fg-muted hover:text-fg-strong" on:click={() => (search = '')} aria-label="Clear search">×</button>
                   {/if}
                 </div>
                 {#if allTags.length || archivedCount}
-                  <div class="filters">
+                  <div class="flex flex-wrap items-center gap-[0.4rem]">
                     {#each allTags as t}
-                      <button class="filter-chip" class:active={selectedTags.includes(t)} on:click={() => toggleTag(t)}>{t}</button>
+                      <button
+                        class="cursor-pointer rounded-sm border px-[0.6rem] py-[0.22rem] text-[0.74rem] font-semibold transition-colors {selectedTags.includes(t) ? 'border-accent-bright bg-[var(--accent-grad)] text-white' : 'border-line bg-surface-2 text-fg-muted hover:border-line-strong hover:text-fg'}"
+                        on:click={() => toggleTag(t)}
+                      >{t}</button>
                     {/each}
                     {#if archivedCount}
-                      <button class="filter-chip archive-toggle" class:active={showArchived} on:click={() => (showArchived = !showArchived)}>
+                      <button
+                        class="ml-auto cursor-pointer rounded-sm border px-[0.6rem] py-[0.22rem] text-[0.74rem] font-semibold transition-colors {showArchived ? 'border-accent-bright bg-[var(--accent-grad)] text-white' : 'border-line bg-surface-2 text-fg-muted hover:border-line-strong hover:text-fg'}"
+                        on:click={() => (showArchived = !showArchived)}
+                      >
                         {showArchived ? 'Hide' : 'Show'} archived · {archivedCount}
                       </button>
                     {/if}
@@ -368,13 +430,13 @@
                 {/if}
               </div>
 
-              <div class="overview reveal">
-                <div class="overview-stat">
-                  <span class="stat-num tnum">{visibleActive.length}</span>
-                  <span class="stat-label">topic{plural(visibleActive.length)}</span>
+              <div class="mb-[1.1rem] flex items-center gap-[1.25rem] px-[0.15rem]">
+                <div class="flex shrink-0 items-baseline gap-[0.35rem]">
+                  <span class="tnum font-display text-[1.5rem] font-extrabold leading-none text-fg-strong">{visibleActive.length}</span>
+                  <span class="text-[0.82rem] text-fg-muted">topic{plural(visibleActive.length)}</span>
                 </div>
-                <div class="overview-bar">
-                  <div class="overview-bar-head">
+                <div class="min-w-0 flex-1">
+                  <div class="mb-[0.35rem] flex justify-between text-[0.74rem] text-fg-muted">
                     <span>Overall progress</span>
                     <span class="tnum">{doneSessions}/{totalSessions} · {overallPct}%</span>
                   </div>
@@ -386,13 +448,13 @@
 
               {#if visibleActive.length}
                 <div
-                  class="topic-list"
-                  use:dndzone={{ items: dndItems, flipDurationMs: 180, dragDisabled, dropTargetStyle: {} }}
+                  class="flex flex-col gap-4"
+                  use:dndzone={{ items: dndItems, flipDurationMs: 0, dragDisabled, dropTargetStyle: {} }}
                   on:consider={handleConsider}
                   on:finalize={handleFinalize}
                 >
                   {#each dndItems as topic (topic.id)}
-                    <div animate:flip={{ duration: 180 }}>
+                    <div>
                       <TopicCard
                         {topic}
                         {allTags}
@@ -408,21 +470,21 @@
                   {/each}
                 </div>
               {:else}
-                <div class="empty">
+                <div class="px-4 py-12 text-center text-fg">
                   {#if hasFilter}
-                    <p class="empty-title">No matches</p>
-                    <p class="muted">No active topics match your search or filters.</p>
+                    <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">No matches</p>
+                    <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">No active topics match your search or filters.</p>
                   {:else}
-                    <p class="empty-title">All topics archived</p>
-                    <p class="muted">Every topic is archived — use “Show archived” to see them.</p>
+                    <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">All topics archived</p>
+                    <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">Every topic is archived — use “Show archived” to see them.</p>
                   {/if}
                 </div>
               {/if}
 
               {#if showArchived && visibleArchived.length}
-                <div class="archived-block">
-                  <h2 class="section-label">Archived</h2>
-                  <div class="topic-list">
+                <div class="mt-[1.6rem]">
+                  <h2 class="m-0 mb-[0.7rem] font-display text-[0.85rem] font-bold uppercase tracking-[0.04em] text-fg-faint">Archived</h2>
+                  <div class="flex flex-col gap-4">
                     {#each visibleArchived as topic (topic.id)}
                       <TopicCard
                         {topic}
@@ -438,47 +500,53 @@
               {/if}
             {/if}
           {:else if activeTab === 'agenda'}
-            <section class="agenda">
-              <div class="agenda-summary reveal">
-                <span class="agenda-count">
-                  <span class="stat-num tnum">{agenda.length}</span>
+            <section>
+              <div class="mb-[1.1rem] flex items-center gap-[0.75rem]">
+                <span class="inline-flex items-baseline gap-[0.4rem] text-[0.92rem] text-fg-muted">
+                  <span class="tnum font-display text-[1.5rem] font-extrabold leading-none text-fg-strong">{agenda.length}</span>
                   upcoming session{plural(agenda.length)}
                 </span>
                 {#if overdueCount}
-                  <span class="pill danger tnum">{overdueCount} overdue</span>
+                  <span class="tnum rounded-sm border border-red-line bg-red-soft px-[0.5rem] py-[0.18rem] text-[0.72rem] font-semibold text-red">{overdueCount} overdue</span>
                   <button class="btn ghost sm" on:click={catchUpOverdue} disabled={catchingUp}>
                     Move all to today
+                  </button>
+                {/if}
+                {#if pastAgenda.length}
+                  <button class="btn ghost sm tnum ml-auto" on:click={() => (showPast = !showPast)}>
+                    {showPast ? 'Hide' : 'Show'} past · {pastAgenda.length}
                   </button>
                 {/if}
               </div>
 
               {#if agenda.length === 0}
-                <div class="empty reveal">
-                  <div class="empty-mark" aria-hidden="true">✓</div>
-                  <p class="empty-title">All caught up</p>
-                  <p class="muted">Nothing scheduled — add dates to your topics to fill your agenda.</p>
+                <div class="px-4 py-12 text-center text-fg">
+                  <div class="mb-[0.6rem] text-[1.6rem] text-accent-bright opacity-80" aria-hidden="true">✓</div>
+                  <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">All caught up</p>
+                  <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">Nothing scheduled — add dates to your topics to fill your agenda.</p>
                 </div>
               {:else}
-                <ul class="agenda-list">
+                <ul class="m-0 flex list-none flex-col gap-[0.7rem] p-0">
                   {#each agendaGroups as group (group.date)}
-                    <li class="agenda-day reveal {sessionStatus(group.date)}">
-                      <div class="day-head">
-                        <span class="day-date tnum">{formatDate(group.date)}</span>
-                        <span class="day-rel tnum">{relativeLabel(group.date)}</span>
+                    <li class="relative overflow-hidden rounded-md border border-line bg-surface py-[0.75rem] pl-[1.1rem] pr-[0.95rem] transition-colors hover:border-line-strong">
+                      <span class="absolute bottom-0 left-0 top-0 w-[3px] {barClass(sessionStatus(group.date))}" aria-hidden="true"></span>
+                      <div class="mb-2 flex items-baseline justify-between gap-2">
+                        <span class="tnum text-[0.92rem] font-semibold text-fg-strong">{formatDate(group.date)}</span>
+                        <span class="tnum text-[0.76rem] {relClass(sessionStatus(group.date))}">{relativeLabel(group.date)}</span>
                       </div>
-                      <ul class="day-items">
+                      <ul class="m-0 flex list-none flex-col gap-[0.4rem] p-0">
                         {#each group.items as item (item.sessionId)}
-                          <li class="agenda-item">
-                            <label>
+                          <li class="chk-row">
+                            <label class="flex w-full cursor-pointer items-center gap-[0.6rem] text-[0.9rem] text-fg transition-colors hover:text-fg-strong">
                               <input
                                 type="checkbox"
                                 disabled={agendaBusy[item.sessionId]}
                                 on:click={(e) => agendaCheckClick(e, item)}
                                 on:change={() => toggleFromAgenda(item.topicId, item.sessionId)}
                               />
-                              <span class="topic-dot" style="--topic:{topicHex(item.topicColor)}"></span>
+                              <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{topicHex(item.topicColor)}"></span>
                               <span>{item.topicName}</span>
-                              {#if item.adaptive}<span class="adaptive-mark" title="Adaptive topic — reviews are graded">◎</span>{/if}
+                              {#if item.adaptive}<span class="text-[0.72rem] text-accent-bright opacity-80" title="Adaptive topic — reviews are graded">◎</span>{/if}
                             </label>
                           </li>
                         {/each}
@@ -487,6 +555,41 @@
                   {/each}
                 </ul>
               {/if}
+
+              {#if showPast && pastGroups.length}
+                <div class="mt-[1.6rem]">
+                  <h2 class="m-0 mb-[0.7rem] font-display text-[0.85rem] font-bold uppercase tracking-[0.04em] text-fg-faint">Past sessions</h2>
+                  <ul class="m-0 flex list-none flex-col gap-[0.7rem] p-0">
+                    {#each pastGroups as group (group.date)}
+                      <li class="relative overflow-hidden rounded-md border border-line bg-surface py-[0.75rem] pl-[1.1rem] pr-[0.95rem] opacity-75 transition-colors hover:border-line-strong">
+                        <span class="absolute bottom-0 left-0 top-0 w-[3px] bg-green" aria-hidden="true"></span>
+                        <div class="mb-2 flex items-baseline justify-between gap-2">
+                          <span class="tnum text-[0.92rem] font-semibold text-fg-strong">{formatDate(group.date)}</span>
+                          <span class="tnum text-[0.76rem] text-fg-muted">{relativeLabel(group.date)}</span>
+                        </div>
+                        <ul class="m-0 flex list-none flex-col gap-[0.4rem] p-0">
+                          {#each group.items as item (item.sessionId)}
+                            <li class="chk-row">
+                              <label class="flex w-full cursor-pointer items-center gap-[0.6rem] text-[0.9rem] text-fg transition-colors hover:text-fg-strong">
+                                <!-- Unchecking a done session is always a plain
+                                     toggle, even for adaptive topics. -->
+                                <input
+                                  type="checkbox"
+                                  checked
+                                  disabled={agendaBusy[item.sessionId]}
+                                  on:change={() => toggleFromAgenda(item.topicId, item.sessionId)}
+                                />
+                                <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{topicHex(item.topicColor)}"></span>
+                                <span>{item.topicName}</span>
+                              </label>
+                            </li>
+                          {/each}
+                        </ul>
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
             </section>
           {:else if activeTab === 'calendar'}
             <Calendar topics={visibleActive} on:changed={onChanged} on:error={onError} />
@@ -494,8 +597,8 @@
             <Stats {topics} />
           {/if}
         </div>
-      {/key}
     {/if}
+    </div>
   </main>
 </div>
 
@@ -508,560 +611,9 @@
 {/if}
 
 {#if errorMsg}
-  <div class="toast" role="alert" transition:fly={{ y: 24, duration: 260, easing: cubicOut }}>
-    <span class="toast-dot" aria-hidden="true"></span>
-    <span class="toast-msg">{errorMsg}</span>
+  <div class="fixed bottom-6 left-1/2 z-50 flex max-w-[min(90vw,460px)] -translate-x-1/2 items-center gap-[0.6rem] rounded-md border border-red-line bg-surface-3 px-4 py-[0.7rem] text-[0.88rem] text-fg-strong shadow-pop" role="alert">
+    <span class="h-2 w-2 shrink-0 rounded-full bg-red" aria-hidden="true"></span>
+    <span class="break-words leading-[1.4]">{errorMsg}</span>
   </div>
 {/if}
 
-<style>
-  .shell {
-    min-height: 100%;
-  }
-
-  .topbar {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    background: var(--topbar-bg);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .top-right {
-    display: flex;
-    align-items: flex-end;
-    gap: 0.5rem;
-  }
-
-  .theme-toggle {
-    margin-bottom: 0.55rem;
-    font-size: 0.85rem;
-  }
-
-  .topbar-inner {
-    max-width: var(--content);
-    margin: 0 auto;
-    padding: 0.85rem 1.5rem 0;
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 1rem 1.5rem;
-    flex-wrap: wrap;
-  }
-
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    padding-bottom: 0.8rem;
-  }
-
-  .logo {
-    width: 34px;
-    height: 34px;
-    border-radius: 8px;
-    background: var(--accent-grad);
-    display: grid;
-    place-items: center;
-    flex: 0 0 auto;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3),
-      0 4px 16px -4px var(--accent-glow);
-  }
-  .logo svg {
-    width: 20px;
-    height: 20px;
-  }
-
-  .eyebrow {
-    display: block;
-    font-size: 0.62rem;
-    font-weight: 700;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--accent-bright);
-    opacity: 0.92;
-  }
-
-  .brand h1 {
-    margin: 2px 0 0;
-    font-family: var(--font-display);
-    font-weight: 800;
-    font-size: 1.4rem;
-    letter-spacing: -0.02em;
-    color: var(--text-strong);
-    line-height: 1;
-  }
-
-  .tabs {
-    display: flex;
-    gap: 0.15rem;
-  }
-
-  .tabs button {
-    position: relative;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    font-family: var(--font-body);
-    font-weight: 700;
-    font-size: 0.78rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    padding: 0.55rem 0.85rem 1.1rem;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    transition: color 0.18s ease;
-  }
-
-  .tabs button::after {
-    content: '';
-    position: absolute;
-    left: 0.85rem;
-    right: 0.85rem;
-    bottom: -1px;
-    height: 2px;
-    background: var(--accent);
-    border-radius: 2px 2px 0 0;
-    transform: scaleX(0);
-    opacity: 0;
-    box-shadow: 0 0 12px var(--accent-glow);
-    transition: transform 0.26s var(--ease), opacity 0.2s ease;
-  }
-
-  .tabs button:hover {
-    color: var(--text);
-  }
-  .tabs button:hover::after {
-    transform: scaleX(0.55);
-    opacity: 0.4;
-  }
-  .tabs button.active {
-    color: var(--text-strong);
-  }
-  .tabs button.active::after {
-    transform: scaleX(1);
-    opacity: 1;
-  }
-
-  .badge {
-    background: var(--red);
-    color: #fff;
-    font-size: 0.66rem;
-    font-weight: 700;
-    border-radius: var(--r-xs);
-    padding: 0.05rem 0.32rem;
-    line-height: 1.45;
-    box-shadow: 0 0 12px -2px rgba(255, 107, 107, 0.6);
-  }
-
-  main {
-    max-width: var(--content);
-    margin: 0 auto;
-    padding: 1.5rem 1.5rem 5rem;
-    text-align: left;
-  }
-
-  .loader {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    color: var(--muted);
-    padding: 3rem 0;
-  }
-
-  .spinner {
-    width: 18px;
-    height: 18px;
-    border: 2px solid var(--border-strong);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    padding: 1.1rem 1.2rem;
-    box-shadow: var(--shadow-1);
-  }
-
-  .new-topic {
-    margin-bottom: 1.4rem;
-  }
-
-  .panel-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.5rem;
-    margin-bottom: 0.8rem;
-  }
-
-  .panel-head h2 {
-    margin: 0;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1rem;
-    letter-spacing: -0.01em;
-    color: var(--text-strong);
-  }
-
-  .panel-hint {
-    font-size: 0.78rem;
-    color: var(--faint);
-  }
-
-  .new-topic form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-
-  .new-topic .btn {
-    align-self: flex-start;
-  }
-
-  .overview {
-    display: flex;
-    align-items: center;
-    gap: 1.25rem;
-    margin-bottom: 1.1rem;
-    padding: 0 0.15rem;
-  }
-
-  .overview-stat {
-    display: flex;
-    align-items: baseline;
-    gap: 0.35rem;
-    flex: 0 0 auto;
-  }
-
-  .stat-num {
-    font-family: var(--font-display);
-    font-weight: 800;
-    font-size: 1.5rem;
-    color: var(--text-strong);
-    line-height: 1;
-  }
-
-  .stat-label {
-    font-size: 0.82rem;
-    color: var(--muted);
-  }
-
-  .overview-bar {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .overview-bar-head {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.74rem;
-    color: var(--muted);
-    margin-bottom: 0.35rem;
-  }
-
-  .topic-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .toolbar {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-    margin-bottom: 1.1rem;
-  }
-
-  .search {
-    position: relative;
-    display: flex;
-  }
-  .search input {
-    width: 100%;
-    padding-right: 2rem;
-  }
-  .search-clear {
-    position: absolute;
-    right: 0.35rem;
-    top: 50%;
-    transform: translateY(-50%);
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 1.15rem;
-    line-height: 1;
-    padding: 0.15rem 0.3rem;
-    border-radius: var(--r-xs);
-  }
-  .search-clear:hover {
-    color: var(--text-strong);
-  }
-
-  .filters {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem;
-  }
-
-  .filter-chip {
-    font-family: var(--font-body);
-    font-size: 0.74rem;
-    font-weight: 600;
-    color: var(--muted);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    padding: 0.22rem 0.6rem;
-    cursor: pointer;
-    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
-  }
-  .filter-chip:hover {
-    color: var(--text);
-    border-color: var(--border-strong);
-  }
-  .filter-chip.active {
-    color: #fff;
-    background: var(--accent-grad);
-    border-color: var(--accent-bright);
-  }
-  .archive-toggle {
-    margin-left: auto;
-  }
-
-  .archived-block {
-    margin-top: 1.6rem;
-  }
-  .section-label {
-    margin: 0 0 0.7rem;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 0.85rem;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--faint);
-  }
-
-  .empty {
-    text-align: center;
-    padding: 3rem 1rem;
-    color: var(--text);
-  }
-
-  .empty-mark {
-    font-size: 1.6rem;
-    color: var(--accent-bright);
-    margin-bottom: 0.6rem;
-    opacity: 0.8;
-  }
-
-  .empty-title {
-    margin: 0 0 0.3rem;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1.1rem;
-    color: var(--text-strong);
-  }
-
-  .empty .muted {
-    font-size: 0.9rem;
-    max-width: 44ch;
-    margin: 0 auto;
-    line-height: 1.5;
-  }
-
-  .agenda-summary {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 1.1rem;
-  }
-
-  .agenda-count {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 0.4rem;
-    color: var(--muted);
-    font-size: 0.92rem;
-  }
-
-  .pill {
-    font-size: 0.72rem;
-    font-weight: 600;
-    border-radius: var(--r-sm);
-    padding: 0.18rem 0.5rem;
-  }
-
-  .pill.danger {
-    background: var(--red-soft);
-    color: var(--red);
-    border: 1px solid var(--red-line);
-  }
-
-  .agenda-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.7rem;
-  }
-
-  .agenda-day {
-    position: relative;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    padding: 0.75rem 0.95rem 0.75rem 1.1rem;
-    overflow: hidden;
-    transition: border-color 0.16s ease, transform 0.16s var(--ease);
-  }
-
-  .agenda-day::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: var(--border-strong);
-  }
-  .agenda-day.overdue::before {
-    background: var(--red);
-    box-shadow: 0 0 14px var(--red);
-  }
-  .agenda-day.today::before {
-    background: var(--amber);
-    box-shadow: 0 0 14px var(--amber);
-  }
-  .agenda-day.upcoming::before {
-    background: var(--accent);
-    box-shadow: 0 0 14px var(--accent-glow);
-  }
-
-  .agenda-day:hover {
-    border-color: var(--border-strong);
-    transform: translateX(2px);
-  }
-
-  .day-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .day-date {
-    font-weight: 600;
-    color: var(--text-strong);
-    font-size: 0.92rem;
-  }
-
-  .day-rel {
-    font-size: 0.76rem;
-    color: var(--muted);
-  }
-
-  .agenda-day.overdue .day-rel {
-    color: var(--red);
-  }
-  .agenda-day.today .day-rel {
-    color: var(--amber);
-    font-weight: 600;
-  }
-
-  .day-items {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-
-  .agenda-item label {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-    color: var(--text);
-    transition: color 0.15s ease;
-  }
-  .agenda-item label:hover {
-    color: var(--text-strong);
-  }
-
-  .topic-dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--topic);
-    flex: 0 0 auto;
-    box-shadow: 0 0 8px -1px var(--topic);
-  }
-
-  .adaptive-mark {
-    font-size: 0.72rem;
-    color: var(--accent-bright);
-    opacity: 0.8;
-  }
-
-  .toast {
-    position: fixed;
-    left: 50%;
-    bottom: 1.5rem;
-    transform: translateX(-50%);
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    max-width: min(90vw, 460px);
-    background: var(--surface-3);
-    border: 1px solid var(--red-line);
-    border-radius: var(--r-md);
-    padding: 0.7rem 1rem;
-    color: var(--text-strong);
-    font-size: 0.88rem;
-    box-shadow: var(--shadow-pop);
-  }
-
-  .toast-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--red);
-    flex: 0 0 auto;
-    box-shadow: 0 0 10px var(--red);
-    animation: pulse 1.4s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.4;
-    }
-  }
-
-  .toast-msg {
-    line-height: 1.4;
-    word-break: break-word;
-  }
-</style>
