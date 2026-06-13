@@ -237,7 +237,7 @@
 </script>
 
 <article
-  class="reveal relative rounded-lg border border-line bg-surface px-[1.2rem] py-[1.1rem] text-left shadow-1 transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-2 {topic.archived ? 'opacity-60' : ''}"
+  class="relative rounded-lg border border-line bg-surface px-[1.2rem] py-[1.1rem] text-left shadow-1 transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-2 {topic.archived ? 'opacity-60' : ''}"
   style="--topic:{hex}"
 >
   <span class="absolute bottom-0 left-0 top-0 w-[3px] rounded-l-lg bg-[var(--topic)] opacity-90" aria-hidden="true"></span>
@@ -331,7 +331,7 @@
     </div>
     <ul class="m-0 mt-[0.5rem] flex list-none flex-col gap-[0.35rem] p-0">
       {#each topic.sessions as s (s.id)}
-        <li class="flex items-center justify-between gap-2 rounded-sm border border-line-soft border-l-2 border-l-line-strong bg-surface-2 py-[0.45rem] pl-[0.6rem] pr-[0.5rem] transition-colors {sessionClass(sessionStatus(s.date, s.done))}">
+        <li class="chk-row flex items-center justify-between gap-2 rounded-sm border border-line-soft border-l-2 border-l-line-strong bg-surface-2 py-[0.45rem] pl-[0.6rem] pr-[0.5rem] transition-colors {sessionClass(sessionStatus(s.date, s.done))}">
           <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-[0.55rem]">
             <input
               type="checkbox"

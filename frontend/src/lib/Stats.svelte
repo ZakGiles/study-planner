@@ -112,7 +112,7 @@
 </script>
 
 <section class="flex flex-col gap-[1.1rem]">
-  <div class="reveal grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-[0.8rem]">
+  <div class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-[0.8rem]">
     <div class="flex flex-col gap-[0.2rem] rounded-lg border border-line bg-surface px-4 py-[0.9rem] shadow-1">
       <span class="tnum font-display text-[1.7rem] font-extrabold leading-none text-fg-strong">{streaks.current}</span>
       <span class="text-[0.78rem] text-fg-muted">day streak{streaks.current > 0 ? ' ✦' : ''}</span>
@@ -131,7 +131,7 @@
     </div>
   </div>
 
-  <div class="reveal rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
+  <div class="rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
     <div class="mb-[0.85rem] flex items-baseline justify-between gap-2">
       <h2 class="m-0 font-display text-base font-bold text-fg-strong">Last {WEEKS} weeks</h2>
       <span class="inline-flex items-center gap-[3px] text-[0.7rem] text-fg-faint">
@@ -162,7 +162,7 @@
   </div>
 
   {#if byTopic.length}
-    <div class="reveal rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
+    <div class="rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
       <div class="mb-[0.85rem] flex items-baseline justify-between gap-2">
         <h2 class="m-0 font-display text-base font-bold text-fg-strong">By topic</h2>
       </div>

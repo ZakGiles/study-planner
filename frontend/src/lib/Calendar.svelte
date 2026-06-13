@@ -154,7 +154,7 @@
 </script>
 
 <section>
-  <div class="reveal mb-4 flex flex-wrap items-center justify-between gap-4">
+  <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
     <div class="flex items-center gap-2">
       <button class="icon-btn px-[0.55rem] py-[0.1rem] text-[1.35rem]" title="Previous month" on:click={prevMonth}>‹</button>
       <h2 class="tnum m-0 min-w-[10rem] text-center font-display text-[1.2rem] font-bold tracking-[-0.01em] text-fg-strong">{MONTHS[viewMonth]} {viewYear}</h2>
@@ -166,7 +166,7 @@
     </div>
   </div>
 
-  <div class="reveal grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-line bg-line shadow-1">
+  <div class="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-line bg-line shadow-1">
     {#each WEEKDAYS as wd}
       <div class="bg-surface-2 py-2 text-center text-[0.68rem] font-bold uppercase tracking-[0.08em] text-fg-muted">{wd}</div>
     {/each}

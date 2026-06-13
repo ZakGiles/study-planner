@@ -1,7 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fly } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
   import type { main } from '../wailsjs/go/models';
   import {
     GetTopics,
@@ -21,7 +19,6 @@
   import { topicHex } from './lib/colors';
   import { dndzone } from 'svelte-dnd-action';
   import type { DndEvent } from 'svelte-dnd-action';
-  import { flip } from 'svelte/animate';
 
   let topics: main.Topic[] = [];
   let activeTab: 'topics' | 'agenda' | 'calendar' | 'stats' = 'topics';
@@ -35,9 +32,19 @@
 
   // Theme is a pure UI preference, persisted locally rather than in the store.
   let theme: 'dark' | 'light' = localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
-  $: {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem('theme', theme);
+  $: applyTheme(theme);
+
+  // Swapping the theme re-points every colour variable; without suspending
+  // transitions for the swap, every element with a hover transition would fade,
+  // animating the whole UI. Disable transitions for the one frame the change
+  // lands in, then restore them so hovers still animate.
+  function applyTheme(t: 'dark' | 'light') {
+    const root = document.documentElement;
+    root.classList.add('no-transition');
+    root.dataset.theme = t;
+    localStorage.setItem('theme', t);
+    void root.offsetWidth; // force a reflow so the swap paints instantly
+    requestAnimationFrame(() => root.classList.remove('no-transition'));
   }
 
   // Keyboard shortcuts: n → new topic, / → search (when not already typing).
@@ -294,24 +301,9 @@
 
 <div class="flex h-full min-h-0">
   <aside class="flex flex-[0_0_232px] flex-col gap-[0.4rem] bg-sidebar px-[0.85rem] pb-4 pt-[1.15rem] border-r border-line max-[720px]:flex-[0_0_60px] max-[720px]:items-center max-[720px]:px-2">
-    <div class="flex items-center gap-[0.65rem] px-[0.45rem] pt-[0.2rem] pb-[1.15rem] max-[720px]:px-0">
-      <span class="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px] bg-[var(--accent-grad)] [&_svg]:h-5 [&_svg]:w-5" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none">
-          <path
-            d="M3 18.5C6.5 18 8.5 13.5 12 10.5 15.5 7.5 18 5.6 21 5.2"
-            stroke="white"
-            stroke-width="2"
-            stroke-linecap="round"
-          />
-          <circle cx="3" cy="18.5" r="2" fill="white" />
-          <circle cx="11.4" cy="11.1" r="2" fill="white" />
-          <circle cx="21" cy="5.2" r="2" fill="white" />
-        </svg>
-      </span>
-      <div class="min-w-0 max-[720px]:hidden">
-        <span class="block whitespace-nowrap text-[0.57rem] font-bold uppercase tracking-[0.16em] text-accent-bright">Spaced repetition</span>
-        <h1 class="m-0 mt-0.5 whitespace-nowrap font-display text-[1.16rem] font-extrabold leading-[1.05] tracking-[-0.02em] text-fg-strong">Study Planner</h1>
-      </div>
+    <div class="px-[0.45rem] pt-[0.2rem] pb-[1.15rem] max-[720px]:hidden">
+      <span class="block whitespace-nowrap text-[0.57rem] font-bold uppercase tracking-[0.16em] text-accent-bright">Spaced repetition</span>
+      <h1 class="m-0 mt-0.5 whitespace-nowrap font-display text-[1.16rem] font-extrabold leading-[1.05] tracking-[-0.02em] text-fg-strong">Study Planner</h1>
     </div>
 
     <nav class="flex flex-col gap-[0.12rem]">
@@ -374,15 +366,11 @@
 
     <div class="mx-auto max-w-content px-[1.6rem] pb-20 pt-6 text-left max-[720px]:px-[1.1rem]">
     {#if loading}
-      <div class="flex items-center gap-[0.6rem] py-12 text-fg-muted">
-        <span class="h-[18px] w-[18px] animate-spin rounded-full border-2 border-line-strong border-t-accent" aria-hidden="true"></span>
-        <span>Loading…</span>
-      </div>
+      <div class="py-12 text-fg-muted">Loading…</div>
     {:else}
-      {#key activeTab}
-        <div in:fly={{ y: 12, duration: 280, easing: cubicOut }}>
+        <div>
           {#if activeTab === 'topics'}
-            <section class="reveal mb-[1.4rem] rounded-lg border border-line bg-surface px-[1.2rem] py-[1.1rem] shadow-1">
+            <section class="mb-[1.4rem] rounded-lg border border-line bg-surface px-[1.2rem] py-[1.1rem] shadow-1">
               <div class="mb-[0.8rem] flex items-baseline justify-between gap-2">
                 <h2 class="m-0 font-display text-base font-bold tracking-[-0.01em] text-fg-strong">New topic</h2>
                 <span class="text-[0.78rem] text-fg-faint">Add something to revise</span>
@@ -406,7 +394,7 @@
             </section>
 
             {#if topics.length === 0}
-              <div class="reveal px-4 py-12 text-center text-fg">
+              <div class="px-4 py-12 text-center text-fg">
                 <div class="mb-[0.6rem] text-[1.6rem] text-accent-bright opacity-80" aria-hidden="true">✦</div>
                 <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">No topics yet</p>
                 <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">
@@ -415,7 +403,7 @@
                 </p>
               </div>
             {:else}
-              <div class="reveal mb-[1.1rem] flex flex-col gap-[0.6rem]">
+              <div class="mb-[1.1rem] flex flex-col gap-[0.6rem]">
                 <div class="relative flex">
                   <input class="w-full pr-8" type="text" bind:this={searchInput} bind:value={search} placeholder="Search topics… ( / )" />
                   {#if search}
@@ -442,7 +430,7 @@
                 {/if}
               </div>
 
-              <div class="reveal mb-[1.1rem] flex items-center gap-[1.25rem] px-[0.15rem]">
+              <div class="mb-[1.1rem] flex items-center gap-[1.25rem] px-[0.15rem]">
                 <div class="flex shrink-0 items-baseline gap-[0.35rem]">
                   <span class="tnum font-display text-[1.5rem] font-extrabold leading-none text-fg-strong">{visibleActive.length}</span>
                   <span class="text-[0.82rem] text-fg-muted">topic{plural(visibleActive.length)}</span>
@@ -461,12 +449,12 @@
               {#if visibleActive.length}
                 <div
                   class="flex flex-col gap-4"
-                  use:dndzone={{ items: dndItems, flipDurationMs: 180, dragDisabled, dropTargetStyle: {} }}
+                  use:dndzone={{ items: dndItems, flipDurationMs: 0, dragDisabled, dropTargetStyle: {} }}
                   on:consider={handleConsider}
                   on:finalize={handleFinalize}
                 >
                   {#each dndItems as topic (topic.id)}
-                    <div animate:flip={{ duration: 180 }}>
+                    <div>
                       <TopicCard
                         {topic}
                         {allTags}
@@ -513,7 +501,7 @@
             {/if}
           {:else if activeTab === 'agenda'}
             <section>
-              <div class="reveal mb-[1.1rem] flex items-center gap-[0.75rem]">
+              <div class="mb-[1.1rem] flex items-center gap-[0.75rem]">
                 <span class="inline-flex items-baseline gap-[0.4rem] text-[0.92rem] text-fg-muted">
                   <span class="tnum font-display text-[1.5rem] font-extrabold leading-none text-fg-strong">{agenda.length}</span>
                   upcoming session{plural(agenda.length)}
@@ -532,7 +520,7 @@
               </div>
 
               {#if agenda.length === 0}
-                <div class="reveal px-4 py-12 text-center text-fg">
+                <div class="px-4 py-12 text-center text-fg">
                   <div class="mb-[0.6rem] text-[1.6rem] text-accent-bright opacity-80" aria-hidden="true">✓</div>
                   <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">All caught up</p>
                   <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">Nothing scheduled — add dates to your topics to fill your agenda.</p>
@@ -540,7 +528,7 @@
               {:else}
                 <ul class="m-0 flex list-none flex-col gap-[0.7rem] p-0">
                   {#each agendaGroups as group (group.date)}
-                    <li class="reveal relative overflow-hidden rounded-md border border-line bg-surface py-[0.75rem] pl-[1.1rem] pr-[0.95rem] transition-colors hover:border-line-strong">
+                    <li class="relative overflow-hidden rounded-md border border-line bg-surface py-[0.75rem] pl-[1.1rem] pr-[0.95rem] transition-colors hover:border-line-strong">
                       <span class="absolute bottom-0 left-0 top-0 w-[3px] {barClass(sessionStatus(group.date))}" aria-hidden="true"></span>
                       <div class="mb-2 flex items-baseline justify-between gap-2">
                         <span class="tnum text-[0.92rem] font-semibold text-fg-strong">{formatDate(group.date)}</span>
@@ -548,8 +536,8 @@
                       </div>
                       <ul class="m-0 flex list-none flex-col gap-[0.4rem] p-0">
                         {#each group.items as item (item.sessionId)}
-                          <li>
-                            <label class="flex cursor-pointer items-center gap-[0.6rem] text-[0.9rem] text-fg transition-colors hover:text-fg-strong">
+                          <li class="chk-row">
+                            <label class="flex w-full cursor-pointer items-center gap-[0.6rem] text-[0.9rem] text-fg transition-colors hover:text-fg-strong">
                               <input
                                 type="checkbox"
                                 disabled={agendaBusy[item.sessionId]}
@@ -581,8 +569,8 @@
                         </div>
                         <ul class="m-0 flex list-none flex-col gap-[0.4rem] p-0">
                           {#each group.items as item (item.sessionId)}
-                            <li>
-                              <label class="flex cursor-pointer items-center gap-[0.6rem] text-[0.9rem] text-fg transition-colors hover:text-fg-strong">
+                            <li class="chk-row">
+                              <label class="flex w-full cursor-pointer items-center gap-[0.6rem] text-[0.9rem] text-fg transition-colors hover:text-fg-strong">
                                 <!-- Unchecking a done session is always a plain
                                      toggle, even for adaptive topics. -->
                                 <input
@@ -609,7 +597,6 @@
             <Stats {topics} />
           {/if}
         </div>
-      {/key}
     {/if}
     </div>
   </main>
@@ -624,8 +611,8 @@
 {/if}
 
 {#if errorMsg}
-  <div class="fixed bottom-6 left-1/2 z-50 flex max-w-[min(90vw,460px)] -translate-x-1/2 items-center gap-[0.6rem] rounded-md border border-red-line bg-surface-3 px-4 py-[0.7rem] text-[0.88rem] text-fg-strong shadow-pop" role="alert" transition:fly={{ y: 24, duration: 260, easing: cubicOut }}>
-    <span class="h-2 w-2 shrink-0 animate-pulse rounded-full bg-red" aria-hidden="true"></span>
+  <div class="fixed bottom-6 left-1/2 z-50 flex max-w-[min(90vw,460px)] -translate-x-1/2 items-center gap-[0.6rem] rounded-md border border-red-line bg-surface-3 px-4 py-[0.7rem] text-[0.88rem] text-fg-strong shadow-pop" role="alert">
+    <span class="h-2 w-2 shrink-0 rounded-full bg-red" aria-hidden="true"></span>
     <span class="break-words leading-[1.4]">{errorMsg}</span>
   </div>
 {/if}

@@ -21,8 +21,6 @@
 
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
-  import { fade, fly } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
 
   export let title: string;
   export let message = '';
@@ -80,7 +78,6 @@
 <div
   class="fixed inset-0 z-[60] grid place-items-center bg-[rgba(5,9,14,0.6)] p-6"
   role="presentation"
-  transition:fade={{ duration: 150 }}
   on:mousedown|self={() => dispatch('choose', 'cancel')}
 >
   <div
@@ -89,7 +86,6 @@
     aria-modal="true"
     aria-label={title}
     bind:this={panel}
-    transition:fly={{ y: 14, duration: 220, easing: cubicOut }}
   >
     <h3 class="m-0 font-display text-[1.05rem] font-bold tracking-[-0.01em] text-fg-strong">{title}</h3>
     {#if message}

@@ -212,6 +212,11 @@
     cursor: pointer;
     transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
   }
+  /* Highlight the box when its containing row/label is hovered, not only when
+     the pointer is directly over the (small) box itself. .chk-row marks a full
+     row (e.g. a session/agenda item) so hovering anywhere on it counts. */
+  .chk-row:hover input[type="checkbox"]:not(:disabled),
+  label:hover > input[type="checkbox"]:not(:disabled),
   input[type="checkbox"]:hover:not(:disabled) {
     border-color: var(--accent);
   }
@@ -230,7 +235,6 @@
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
     transform-origin: center;
-    animation: check-pop 0.2s var(--ease-out);
   }
   input[type="checkbox"]:focus-visible {
     box-shadow: 0 0 0 3px var(--accent-soft);
@@ -353,32 +357,14 @@
   .muted {
     color: var(--muted);
   }
-  .reveal {
-    opacity: 0;
-    animation: rise 0.5s var(--ease-out) forwards;
-  }
 }
 
-@keyframes check-pop {
-  from {
-    opacity: 0;
-    transform: rotate(45deg) scale(0.4);
-  }
-  to {
-    opacity: 1;
-    transform: rotate(45deg) scale(1);
-  }
-}
-
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Applied for a single frame while the theme swaps, so re-pointing the colour
+   variables doesn't animate every transitioned property. */
+.no-transition *,
+.no-transition *::before,
+.no-transition *::after {
+  transition: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
