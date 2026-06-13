@@ -144,32 +144,39 @@
     pickDate = null;
     if (date && e.detail !== 'cancel') void run(AddSession(e.detail, date));
   }
+
+  // Status → Tailwind utilities for a calendar event chip.
+  const evClass = (status: string) =>
+    status === 'overdue' ? 'shadow-[inset_3px_0_0_var(--red)]'
+    : status === 'today' ? 'shadow-[inset_3px_0_0_var(--amber)] font-bold'
+    : status === 'done' ? 'opacity-50 line-through'
+    : '';
 </script>
 
-<section class="calendar">
-  <div class="cal-head reveal">
-    <div class="cal-nav">
-      <button class="icon-btn nav" title="Previous month" on:click={prevMonth}>‹</button>
-      <h2 class="tnum">{MONTHS[viewMonth]} {viewYear}</h2>
-      <button class="icon-btn nav" title="Next month" on:click={nextMonth}>›</button>
+<section>
+  <div class="reveal mb-4 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-2">
+      <button class="icon-btn px-[0.55rem] py-[0.1rem] text-[1.35rem]" title="Previous month" on:click={prevMonth}>‹</button>
+      <h2 class="tnum m-0 min-w-[10rem] text-center font-display text-[1.2rem] font-bold tracking-[-0.01em] text-fg-strong">{MONTHS[viewMonth]} {viewYear}</h2>
+      <button class="icon-btn px-[0.55rem] py-[0.1rem] text-[1.35rem]" title="Next month" on:click={nextMonth}>›</button>
     </div>
-    <div class="cal-actions">
-      <span class="cal-count tnum">{monthCount} session{plural(monthCount)}</span>
+    <div class="flex items-center gap-[0.85rem]">
+      <span class="tnum text-[0.82rem] text-fg-muted">{monthCount} session{plural(monthCount)}</span>
       <button class="btn ghost" on:click={goToday}>Today</button>
     </div>
   </div>
 
-  <div class="grid reveal">
+  <div class="reveal grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-line bg-line shadow-1">
     {#each WEEKDAYS as wd}
-      <div class="weekday">{wd}</div>
+      <div class="bg-surface-2 py-2 text-center text-[0.68rem] font-bold uppercase tracking-[0.08em] text-fg-muted">{wd}</div>
     {/each}
     {#each cells as cell (cell.iso)}
-      <div class="cell" class:out={!cell.inMonth} class:today={cell.isToday}>
-        <div class="cell-head">
-          <span class="day-num tnum">{cell.day}</span>
+      <div class="group flex min-h-[94px] flex-col gap-[0.25rem] px-[0.35rem] pb-[0.4rem] pt-[0.3rem] transition-colors hover:bg-surface-2 {cell.inMonth ? 'bg-surface' : 'bg-inset'}">
+        <div class="flex items-start justify-between gap-[0.2rem]">
+          <span class="tnum grid h-[1.55rem] min-w-[1.55rem] place-items-center rounded-sm text-[0.76rem] leading-[1.5] {cell.isToday ? 'bg-[var(--accent-grad)] font-bold text-white' : cell.inMonth ? 'text-fg' : 'text-fg opacity-40'}">{cell.day}</span>
           {#if topics.length}
             <button
-              class="add-day"
+              class="h-[1.35rem] w-[1.35rem] cursor-pointer rounded-sm border border-transparent bg-transparent text-[0.95rem] leading-none text-fg-muted opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 hover:border-line hover:bg-surface-3 hover:text-fg-strong disabled:cursor-not-allowed"
               title="Add a session on {formatDate(cell.iso)}"
               aria-label="Add a session on {formatDate(cell.iso)}"
               on:click={() => (pickDate = cell.iso)}
@@ -178,10 +185,10 @@
           {/if}
         </div>
         {#if cell.sessions.length}
-          <div class="cell-sessions">
+          <div class="flex min-w-0 flex-col gap-[0.2rem]">
             {#each cell.sessions as s (s.sessionId)}
               <button
-                class="ev {sessionStatus(s.date, s.done)}"
+                class="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap rounded-xs border px-[0.35rem] py-[0.12rem] text-left text-[0.72rem] font-semibold transition-[transform,filter] [background:color-mix(in_srgb,var(--topic)_16%,transparent)] [border-color:color-mix(in_srgb,var(--topic)_45%,transparent)] [color:color-mix(in_srgb,var(--topic)_60%,var(--text-strong))] hover:translate-x-[1px] hover:brightness-[1.15] disabled:cursor-not-allowed {evClass(sessionStatus(s.date, s.done))}"
                 style="--topic:{topicHex(s.color)}"
                 title={`${s.topicName} — ${s.done ? 'done' : relativeLabel(s.date)} (click to toggle)`}
                 on:click={() => toggle(s)}
@@ -209,194 +216,3 @@
   <GradeModal topicName={gradeTarget.topicName} on:grade={onGrade} on:cancel={() => (gradeTarget = null)} />
 {/if}
 
-<style>
-  .cal-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-    margin-bottom: 1rem;
-  }
-
-  .cal-nav {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .cal-nav h2 {
-    margin: 0;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1.2rem;
-    letter-spacing: -0.01em;
-    color: var(--text-strong);
-    min-width: 10rem;
-    text-align: center;
-  }
-
-  .icon-btn.nav {
-    font-size: 1.35rem;
-    padding: 0.1rem 0.55rem;
-  }
-
-  .cal-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.85rem;
-  }
-
-  .cal-count {
-    font-size: 0.82rem;
-    color: var(--muted);
-  }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-    gap: 1px;
-    background: var(--border);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    overflow: hidden;
-    box-shadow: var(--shadow-1);
-  }
-
-  .weekday {
-    background: var(--surface-2);
-    color: var(--muted);
-    font-size: 0.68rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    text-align: center;
-    padding: 0.5rem 0;
-  }
-
-  .cell {
-    background: var(--surface);
-    min-height: 94px;
-    padding: 0.3rem 0.35rem 0.4rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    transition: background 0.14s ease;
-  }
-
-  .cell:hover {
-    background: var(--surface-2);
-  }
-
-  .cell.out {
-    background: var(--inset);
-  }
-  .cell.out:hover {
-    background: var(--surface-2);
-  }
-
-  .cell.out .day-num {
-    opacity: 0.4;
-  }
-
-  .cell-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.2rem;
-  }
-
-  .day-num {
-    font-size: 0.76rem;
-    color: var(--text);
-    line-height: 1.5;
-    min-width: 1.55rem;
-    height: 1.55rem;
-    display: grid;
-    place-items: center;
-    border-radius: var(--r-sm);
-  }
-
-  .add-day {
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--muted);
-    font-size: 0.95rem;
-    line-height: 1;
-    width: 1.35rem;
-    height: 1.35rem;
-    border-radius: var(--r-sm);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.13s ease, background 0.15s ease, color 0.15s ease;
-  }
-  .cell:hover .add-day,
-  .add-day:focus-visible {
-    opacity: 1;
-  }
-  .add-day:hover:not(:disabled) {
-    background: var(--surface-3);
-    border-color: var(--border);
-    color: var(--text-strong);
-  }
-  .add-day:disabled {
-    cursor: not-allowed;
-  }
-
-  .cell.today .day-num {
-    background: var(--accent-grad);
-    color: #fff;
-    font-weight: 700;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25),
-      0 0 14px -2px var(--accent-glow);
-  }
-
-  .cell-sessions {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    min-width: 0;
-  }
-
-  .ev {
-    font: inherit;
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-align: left;
-    border: 1px solid;
-    border-radius: var(--r-xs);
-    padding: 0.12rem 0.35rem;
-    cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    background: color-mix(in srgb, var(--topic) 16%, transparent);
-    border-color: color-mix(in srgb, var(--topic) 45%, transparent);
-    /* Mixing toward --text-strong keeps the label readable on both themes. */
-    color: color-mix(in srgb, var(--topic) 60%, var(--text-strong));
-    transition: transform 0.12s var(--ease), filter 0.15s ease;
-  }
-
-  .ev:hover:not(:disabled) {
-    transform: translateX(1px);
-    filter: brightness(1.15);
-  }
-
-  .ev:disabled {
-    cursor: not-allowed;
-  }
-
-  .ev.overdue {
-    box-shadow: inset 3px 0 0 var(--red);
-  }
-
-  .ev.today {
-    box-shadow: inset 3px 0 0 var(--amber);
-    font-weight: 700;
-  }
-
-  .ev.done {
-    opacity: 0.5;
-    text-decoration: line-through;
-  }
-</style>

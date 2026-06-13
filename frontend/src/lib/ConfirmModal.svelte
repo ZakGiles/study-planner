@@ -78,44 +78,43 @@
 <svelte:window on:keydown={onKey} />
 
 <div
-  class="overlay"
+  class="fixed inset-0 z-[60] grid place-items-center bg-[rgba(5,9,14,0.6)] p-6"
   role="presentation"
   transition:fade={{ duration: 150 }}
   on:mousedown|self={() => dispatch('choose', 'cancel')}
 >
   <div
-    class="panel"
+    class="w-[min(92vw,440px)] max-h-[calc(100vh-3rem)] overflow-y-auto [overscroll-behavior:contain] rounded-lg border border-line-strong bg-surface-2 px-[1.25rem] pb-[1.2rem] pt-[1.15rem] text-left shadow-pop"
     role="dialog"
     aria-modal="true"
     aria-label={title}
     bind:this={panel}
     transition:fly={{ y: 14, duration: 220, easing: cubicOut }}
   >
-    <h3>{title}</h3>
+    <h3 class="m-0 font-display text-[1.05rem] font-bold tracking-[-0.01em] text-fg-strong">{title}</h3>
     {#if message}
-      <p class="msg">{message}</p>
+      <p class="mt-[0.45rem] text-[0.86rem] leading-[1.5] text-fg-muted">{message}</p>
     {/if}
 
     {#if choices.length}
-      <div class="choices">
+      <div class="mt-[0.95rem] flex flex-col gap-[0.5rem]">
         {#each choices as c (c.value)}
           <button
-            class="choice {c.kind ?? ''}"
-            class:tinted={!!c.color}
+            class="flex cursor-pointer flex-col gap-[0.18rem] rounded-md border border-line bg-inset px-[0.8rem] py-[0.65rem] text-left transition hover:-translate-y-px {c.color ? 'hover:[background:color-mix(in_srgb,var(--choice)_12%,transparent)] hover:[border-color:color-mix(in_srgb,var(--choice)_50%,transparent)]' : c.kind === 'primary' ? 'hover:border-accent-line hover:bg-accent-soft' : c.kind === 'danger' ? 'hover:border-red-line hover:bg-red-soft' : ''}"
             style={c.color ? `--choice:${c.color}` : ''}
             on:click={() => dispatch('choose', c.value)}
           >
-            <span class="choice-label">
-              {#if c.color}<span class="choice-dot"></span>{/if}{c.label}
+            <span class="text-[0.9rem] font-bold {c.kind === 'primary' ? 'text-accent-bright' : c.kind === 'danger' ? 'text-red' : 'text-fg-strong'}">
+              {#if c.color}<span class="mr-[0.5rem] inline-block h-[9px] w-[9px] rounded-full bg-[var(--choice)]"></span>{/if}{c.label}
             </span>
-            {#if c.detail}<span class="choice-detail">{c.detail}</span>{/if}
+            {#if c.detail}<span class="text-[0.76rem] leading-[1.4] text-fg-muted">{c.detail}</span>{/if}
           </button>
         {/each}
       </div>
     {/if}
 
     {#if row.length}
-      <div class="row">
+      <div class="mt-4 flex justify-end gap-[0.5rem]">
         {#each row as c (c.value)}
           <button class="btn {c.kind ?? 'ghost'}" on:click={() => dispatch('choose', c.value)}>
             {c.label}
@@ -125,121 +124,3 @@
     {/if}
   </div>
 </div>
-
-<style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-    display: grid;
-    place-items: center;
-    padding: 1.5rem;
-    background: rgba(5, 9, 14, 0.6);
-    backdrop-filter: blur(3px);
-    -webkit-backdrop-filter: blur(3px);
-  }
-
-  .panel {
-    width: min(92vw, 440px);
-    /* Long choice lists (e.g. the calendar's topic picker) scroll inside the
-       panel instead of overflowing the non-scrollable fixed overlay. */
-    max-height: calc(100vh - 3rem);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    background: var(--surface-2);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--r-lg);
-    box-shadow: var(--shadow-pop);
-    padding: 1.15rem 1.25rem 1.2rem;
-    text-align: left;
-  }
-
-  h3 {
-    margin: 0;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1.05rem;
-    letter-spacing: -0.01em;
-    color: var(--text-strong);
-  }
-
-  .msg {
-    margin: 0.45rem 0 0;
-    color: var(--muted);
-    font-size: 0.86rem;
-    line-height: 1.5;
-  }
-
-  .choices {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    margin-top: 0.95rem;
-  }
-
-  .choice {
-    font: inherit;
-    display: flex;
-    flex-direction: column;
-    gap: 0.18rem;
-    text-align: left;
-    background: var(--inset);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    padding: 0.65rem 0.8rem;
-    cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s var(--ease);
-  }
-  .choice:hover {
-    transform: translateY(-1px);
-  }
-
-  .choice.primary:hover {
-    background: var(--accent-soft);
-    border-color: var(--accent-line);
-  }
-  .choice.danger:hover {
-    background: var(--red-soft);
-    border-color: var(--red-line);
-  }
-
-  .choice-label {
-    font-weight: 700;
-    font-size: 0.9rem;
-    color: var(--text-strong);
-  }
-  .choice.primary .choice-label {
-    color: var(--accent-bright);
-  }
-  .choice.danger .choice-label {
-    color: var(--red);
-  }
-
-  .choice.tinted:hover {
-    background: color-mix(in srgb, var(--choice) 12%, transparent);
-    border-color: color-mix(in srgb, var(--choice) 50%, transparent);
-  }
-
-  .choice-dot {
-    display: inline-block;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--choice);
-    margin-right: 0.5rem;
-    box-shadow: 0 0 8px -1px var(--choice);
-  }
-
-  .choice-detail {
-    font-size: 0.76rem;
-    color: var(--muted);
-    line-height: 1.4;
-  }
-
-  .row {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    margin-top: 1rem;
-  }
-</style>

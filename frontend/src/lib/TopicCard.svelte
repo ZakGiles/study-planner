@@ -222,19 +222,35 @@
     gradeSid = null;
     if (sid) void run(GradeSession(topic.id, sid, e.detail));
   }
+
+  // Status → Tailwind utilities for a session row and its relative-time label.
+  const sessionClass = (status: string) =>
+    status === 'overdue' ? '!border-red-line !border-l-red !bg-red-soft'
+    : status === 'today' ? '!border-amber-line !border-l-amber !bg-amber-soft'
+    : status === 'done' ? 'opacity-[0.55] !border-l-green'
+    : status === 'upcoming' ? '!border-l-accent'
+    : '';
+  const relColor = (status: string) =>
+    status === 'overdue' ? 'text-red'
+    : status === 'today' ? 'text-amber font-semibold'
+    : 'text-fg-muted';
 </script>
 
-<article class="card reveal" class:archived={topic.archived} style="--topic:{hex}">
-  <header class="card-head">
+<article
+  class="reveal relative rounded-lg border border-line bg-surface px-[1.2rem] py-[1.1rem] text-left shadow-1 transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-2 {topic.archived ? 'opacity-60' : ''}"
+  style="--topic:{hex}"
+>
+  <span class="absolute bottom-0 left-0 top-0 w-[3px] rounded-l-lg bg-[var(--topic)] opacity-90" aria-hidden="true"></span>
+  <header class="flex items-start justify-between gap-[0.75rem]">
     {#if editing}
-      <div class="edit">
-        <input class="edit-name" bind:value={editName} placeholder="Topic name" />
-        <textarea class="edit-desc" bind:value={editDescription} rows="2" placeholder="Description"></textarea>
-        <div class="tag-edit">
+      <div class="flex w-full flex-col gap-[0.5rem]">
+        <input class="w-full" type="text" bind:value={editName} placeholder="Topic name" />
+        <textarea class="w-full" bind:value={editDescription} rows="2" placeholder="Description"></textarea>
+        <div class="flex flex-col gap-[0.4rem]">
           {#if editTags.length}
-            <div class="tag-chips">
+            <div class="flex flex-wrap gap-[0.3rem]">
               {#each editTags as t}
-                <span class="tag removable">{t}<button type="button" class="tag-x" on:click={() => removeTag(t)} aria-label="Remove {t}">×</button></span>
+                <span class="inline-flex items-center gap-[0.25rem] rounded-sm border border-line bg-surface-2 px-[0.45rem] py-[0.1rem] text-[0.7rem] font-semibold text-fg">{t}<button type="button" class="cursor-pointer border-none bg-transparent p-0 text-[0.95rem] leading-none text-fg-muted hover:text-red" on:click={() => removeTag(t)} aria-label="Remove {t}">×</button></span>
               {/each}
             </div>
           {/if}
@@ -249,29 +265,29 @@
             {#each allTags as t}<option value={t}></option>{/each}
           </datalist>
         </div>
-        <div class="edit-actions">
+        <div class="flex gap-[0.4rem]">
           <button class="btn primary" on:click={saveEdit} disabled={busy || !editName.trim()}>Save</button>
           <button class="btn ghost" on:click={() => (editing = false)} disabled={busy}>Cancel</button>
         </div>
       </div>
     {:else}
-      <div class="title-block">
-        <h3>{topic.name}</h3>
+      <div>
+        <h3 class="m-0 font-display text-[1.08rem] font-bold tracking-[-0.01em] text-fg-strong">{topic.name}</h3>
         {#if topic.description}
-          <p class="desc">{topic.description}</p>
+          <p class="mt-[0.3rem] whitespace-pre-wrap text-[0.875rem] leading-[1.45] text-fg-muted">{topic.description}</p>
         {/if}
         {#if topic.tags.length}
-          <div class="tags">
+          <div class="mt-[0.5rem] flex flex-wrap gap-[0.3rem]">
             {#each topic.tags as t}
-              <button class="tag clickable" title="Filter by “{t}”" on:click={() => dispatch('filterTag', t)}>{t}</button>
+              <button class="cursor-pointer rounded-sm border border-line bg-surface-2 px-[0.45rem] py-[0.1rem] text-[0.7rem] font-semibold text-fg-muted transition-colors hover:border-accent-line hover:text-fg-strong" title="Filter by “{t}”" on:click={() => dispatch('filterTag', t)}>{t}</button>
             {/each}
           </div>
         {/if}
       </div>
-      <div class="head-actions">
+      <div class="flex shrink-0 gap-[0.25rem]">
         {#if draggable}
           <button
-            class="icon-btn handle"
+            class="icon-btn cursor-grab touch-none active:cursor-grabbing"
             title="Drag to reorder"
             aria-label="Drag to reorder"
             on:mousedown={() => dispatch('arm')}
@@ -285,20 +301,19 @@
             </svg>
           </button>
         {/if}
-        <button class="icon-btn swatch" title="Topic colour" on:click={() => (showColors = !showColors)} disabled={busy}><span class="swatch-dot"></span></button>
-        <button class="icon-btn" title={topic.archived ? 'Restore topic' : 'Archive topic'} on:click={() => run(SetTopicArchived(topic.id, !topic.archived))} disabled={busy}>{topic.archived ? '↩️' : '📦'}</button>
-        <button class="icon-btn" title="Edit topic" on:click={startEdit} disabled={busy}>✏️</button>
-        <button class="icon-btn" title="Delete topic" on:click={() => (confirmKind = 'delete')} disabled={busy}>🗑️</button>
+        <button class="icon-btn" title="Topic colour" on:click={() => (showColors = !showColors)} disabled={busy}><span class="block h-[14px] w-[14px] rounded-full bg-[var(--topic)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25)]"></span></button>
+        <button class="icon-btn" title={topic.archived ? 'Restore topic' : 'Archive topic'} on:click={() => run(SetTopicArchived(topic.id, !topic.archived))} disabled={busy}>{topic.archived ? '⤒' : '⤓'}</button>
+        <button class="icon-btn" title="Edit topic" on:click={startEdit} disabled={busy}>✎</button>
+        <button class="icon-btn" title="Delete topic" on:click={() => (confirmKind = 'delete')} disabled={busy}>✕</button>
       </div>
     {/if}
   </header>
 
   {#if showColors}
-    <div class="swatches">
+    <div class="mb-[0.4rem] mt-[0.2rem] flex flex-wrap gap-[0.4rem]">
       {#each TOPIC_COLORS as c}
         <button
-          class="swatch-opt"
-          class:active={topic.color === c.token}
+          class="h-5 w-5 cursor-pointer rounded-full border-none bg-[var(--topic)] p-0 transition-transform hover:scale-110 {topic.color === c.token ? 'shadow-[0_0_0_2px_var(--surface),0_0_0_4px_var(--topic)]' : ''}"
           style="--topic:{c.hex}"
           title={c.label}
           aria-label={c.label}
@@ -310,14 +325,14 @@
   {/if}
 
   {#if total > 0}
-    <div class="progress-row">
+    <div class="mb-[0.6rem] mt-4 flex items-center gap-[0.7rem]">
       <div class="bar"><div class="fill" style="width:{progress}%"></div></div>
-      <span class="progress-label tnum">{doneCount}/{total}</span>
+      <span class="tnum whitespace-nowrap text-[0.74rem] text-fg-muted">{doneCount}/{total}</span>
     </div>
-    <ul class="sessions">
+    <ul class="m-0 mt-[0.5rem] flex list-none flex-col gap-[0.35rem] p-0">
       {#each topic.sessions as s (s.id)}
-        <li class="session {sessionStatus(s.date, s.done)}">
-          <label class="chk">
+        <li class="flex items-center justify-between gap-2 rounded-sm border border-line-soft border-l-2 border-l-line-strong bg-surface-2 py-[0.45rem] pl-[0.6rem] pr-[0.5rem] transition-colors {sessionClass(sessionStatus(s.date, s.done))}">
+          <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-[0.55rem]">
             <input
               type="checkbox"
               checked={s.done}
@@ -325,8 +340,8 @@
               on:change={() => run(ToggleSession(topic.id, s.id))}
               disabled={busy}
             />
-            <span class="date tnum">{formatDate(s.date)}</span>
-            <span class="rel tnum">{s.done ? 'done' : relativeLabel(s.date)}</span>
+            <span class="tnum text-[0.86rem] {s.done ? 'text-fg-muted line-through' : 'text-fg-strong'}">{formatDate(s.date)}</span>
+            <span class="tnum ml-auto whitespace-nowrap pl-2 text-[0.72rem] {relColor(sessionStatus(s.date, s.done))}">{s.done ? 'done' : relativeLabel(s.date)}</span>
           </label>
           {#if sessionStatus(s.date, s.done) === 'overdue'}
             <button
@@ -341,13 +356,13 @@
       {/each}
     </ul>
   {:else}
-    <p class="empty-sessions">No study dates yet — add some below.</p>
+    <p class="mb-[0.2rem] mt-[0.9rem] text-[0.85rem] text-fg-muted">No study dates yet — add some below.</p>
   {/if}
 
-  <div class="adder">
-    <div class="adder-head">
-      <span class="adder-label">Schedule dates</span>
-      <label class="adaptive-toggle" title="Grade each review (Again / Hard / Good / Easy) and let the schedule adapt">
+  <div class="mt-4 border-t border-line-soft pt-[0.95rem]">
+    <div class="mb-[0.55rem] flex items-center justify-between gap-[0.6rem]">
+      <span class="block text-[0.66rem] font-bold uppercase tracking-[0.12em] text-fg-faint">Schedule dates</span>
+      <label class="inline-flex cursor-pointer items-center gap-[0.35rem] text-[0.74rem] font-semibold text-fg-muted hover:text-fg" title="Grade each review (Again / Hard / Good / Easy) and let the schedule adapt">
         <input
           type="checkbox"
           checked={topic.adaptive}
@@ -363,62 +378,62 @@
     </div>
 
     {#if addMode === 'manual'}
-      <div class="row">
+      <div class="mt-[0.6rem] flex flex-wrap items-end gap-2">
         <input type="date" bind:value={manualDate} />
         <button class="btn primary" on:click={addManual} disabled={busy || !manualDate}>Add date</button>
       </div>
       {#if manualDate && topic.sessions.some((s) => s.date === manualDate)}
-        <p class="preview muted">Already scheduled on this day for this topic.</p>
+        <p class="muted mt-[0.6rem] text-[0.78rem]">Already scheduled on this day for this topic.</p>
       {:else if manualDate && (otherLoad[manualDate] ?? 0) >= 2}
-        <p class="warn">This day already has {otherLoad[manualDate]} sessions across topics.</p>
+        <p class="mt-[0.55rem] text-[0.76rem] leading-[1.45] text-amber">This day already has {otherLoad[manualDate]} sessions across topics.</p>
       {/if}
     {:else}
-      <div class="row">
-        <label class="field">
+      <div class="mt-[0.6rem] flex flex-wrap items-end gap-2">
+        <label class="flex flex-col gap-[0.25rem] text-[0.68rem] font-semibold uppercase tracking-[0.04em] text-fg-faint">
           <span>Start</span>
           <input type="date" bind:value={spacedStart} />
         </label>
       </div>
 
-      <div class="seg curve">
+      <div class="seg my-[0.6rem]">
         <button class:active={spacedCurve === 'fixed'} on:click={() => (spacedCurve = 'fixed')}>Fixed intervals</button>
         <button class:active={spacedCurve === 'log'} on:click={() => (spacedCurve = 'log')}>Logarithmic</button>
       </div>
 
       {#if spacedCurve === 'fixed'}
-        <div class="row">
-          <label class="field grow">
+        <div class="mt-[0.6rem] flex flex-wrap items-end gap-2">
+          <label class="flex min-w-[150px] flex-1 flex-col gap-[0.25rem] text-[0.68rem] font-semibold uppercase tracking-[0.04em] text-fg-faint">
             <span>Days from start</span>
             <input type="text" bind:value={spacedIntervals} placeholder="0, 1, 3, 7, 14, 30" />
           </label>
           <button class="btn primary" on:click={requestGenerate} disabled={busy || preview.length === 0}>Generate</button>
         </div>
       {:else}
-        <div class="row">
-          <label class="field num">
+        <div class="mt-[0.6rem] flex flex-wrap items-end gap-2">
+          <label class="flex w-[92px] flex-col gap-[0.25rem] text-[0.68rem] font-semibold uppercase tracking-[0.04em] text-fg-faint">
             <span>Dilation</span>
-            <input type="number" min="0" step="0.5" bind:value={logDilation} />
+            <input class="w-full" type="number" min="0" step="0.5" bind:value={logDilation} />
           </label>
-          <label class="field num">
+          <label class="flex w-[92px] flex-col gap-[0.25rem] text-[0.68rem] font-semibold uppercase tracking-[0.04em] text-fg-faint">
             <span>Factor</span>
-            <input type="number" min="0" step="0.1" bind:value={logFactor} />
+            <input class="w-full" type="number" min="0" step="0.1" bind:value={logFactor} />
           </label>
-          <label class="field num">
+          <label class="flex w-[92px] flex-col gap-[0.25rem] text-[0.68rem] font-semibold uppercase tracking-[0.04em] text-fg-faint">
             <span>Sessions</span>
-            <input type="number" min="1" max="60" step="1" bind:value={logCount} />
+            <input class="w-full" type="number" min="1" max="60" step="1" bind:value={logCount} />
           </label>
           <button class="btn primary" on:click={requestGenerate} disabled={busy || preview.length === 0}>Generate</button>
         </div>
-        <p class="hint">offset(n) = dilation × factor<sup>n</sup> × ln(n+1) days from start</p>
+        <p class="mt-[0.4rem] text-[0.74rem] text-fg-muted">offset(n) = dilation × factor<sup class="text-[0.6rem]">n</sup> × ln(n+1) days from start</p>
       {/if}
 
       {#if preview.length}
-        <p class="preview tnum">→ {preview.length} session{plural(preview.length)}: {formatDate(preview[0])}{preview.length > 1 ? ` … ${formatDate(preview[preview.length - 1])}` : ''}</p>
+        <p class="tnum mt-[0.6rem] text-[0.78rem] text-accent-bright">→ {preview.length} session{plural(preview.length)}: {formatDate(preview[0])}{preview.length > 1 ? ` … ${formatDate(preview[preview.length - 1])}` : ''}</p>
         {#if spacedCurve === 'log'}
-          <p class="preview muted tnum">offsets: {effectiveOffsets.join(', ')} days</p>
+          <p class="muted tnum mt-[0.6rem] text-[0.78rem]">offsets: {effectiveOffsets.join(', ')} days</p>
         {/if}
         {#if rawBusyDays.length}
-          <p class="warn" class:resolved={smooth && busyDays.length === 0}>
+          <p class="mt-[0.55rem] text-[0.76rem] leading-[1.45] {smooth && busyDays.length === 0 ? 'text-green' : 'text-amber'}">
             {#if smooth && busyDays.length === 0}
               Shifted off {rawBusyDays.length === 1 ? 'a busy day' : `${rawBusyDays.length} busy days`}. ✓
             {:else if busyDays.length === 1}
@@ -426,23 +441,24 @@
             {:else}
               {busyDays.length} of these days still have 2+ sessions across topics.
             {/if}
-            <label class="smooth-toggle">
+            <label class="ml-[0.45rem] inline-flex cursor-pointer items-center gap-[0.3rem] font-semibold text-fg hover:text-fg-strong">
               <input type="checkbox" bind:checked={smooth} />
               <span>shift busy days</span>
             </label>
           </p>
         {/if}
       {:else if spacedCurve === 'fixed'}
-        <p class="preview muted">Enter day offsets, e.g. <code>0, 1, 3, 7, 14, 30</code></p>
+        <p class="muted mt-[0.6rem] text-[0.78rem]">Enter day offsets, e.g. <code class="rounded-xs border border-line-soft bg-inset px-[0.3rem] py-[0.05rem] text-fg">0, 1, 3, 7, 14, 30</code></p>
       {:else}
-        <p class="preview muted">Set a dilation, factor and session count.</p>
+        <p class="muted mt-[0.6rem] text-[0.78rem]">Set a dilation, factor and session count.</p>
       {/if}
     {/if}
   </div>
 </article>
 
-<!-- Siblings of the card, not children: .card:hover sets a transform, which
-     would turn the modals' position:fixed into card-relative positioning. -->
+<!-- Siblings of the card, not children: a transform on .card (e.g. from a
+     hover effect) would turn the modals' position:fixed into card-relative
+     positioning, so they stay outside it. -->
 {#if confirmKind}
   <ConfirmModal title={confirmTitle} message={confirmMessage} actions={confirmActions} on:choose={onConfirmChoose} />
 {/if}
@@ -450,438 +466,3 @@
   <GradeModal topicName={topic.name} on:grade={onGrade} on:cancel={() => (gradeSid = null)} />
 {/if}
 
-<style>
-  .card {
-    position: relative;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    padding: 1.1rem 1.2rem;
-    box-shadow: var(--shadow-1);
-    text-align: left;
-    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s var(--ease);
-  }
-
-  .card:hover {
-    border-color: var(--border-strong);
-    box-shadow: var(--shadow-2);
-    transform: translateY(-2px);
-  }
-
-  .card.archived {
-    opacity: 0.6;
-  }
-
-  .card::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    border-radius: var(--r-lg) 0 0 var(--r-lg);
-    background: var(--topic);
-    opacity: 0.9;
-  }
-
-  .swatch-dot {
-    display: block;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--topic);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
-  }
-
-  .swatches {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    margin: 0.2rem 0 0.4rem;
-  }
-
-  .swatch-opt {
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    border: none;
-    border-radius: 50%;
-    background: var(--topic);
-    cursor: pointer;
-    transition: transform 0.12s var(--ease), box-shadow 0.15s ease;
-  }
-  .swatch-opt:hover {
-    transform: scale(1.12);
-  }
-  .swatch-opt.active {
-    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--topic);
-  }
-
-  .card-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
-  .title-block h3 {
-    margin: 0;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1.08rem;
-    letter-spacing: -0.01em;
-    color: var(--text-strong);
-  }
-
-  .desc {
-    margin: 0.3rem 0 0;
-    color: var(--muted);
-    font-size: 0.875rem;
-    line-height: 1.45;
-    white-space: pre-wrap;
-  }
-
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-    margin-top: 0.5rem;
-  }
-
-  .tag {
-    font-family: var(--font-body);
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: var(--muted);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    padding: 0.1rem 0.45rem;
-  }
-
-  .tag.clickable {
-    cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease;
-  }
-  .tag.clickable:hover {
-    color: var(--text-strong);
-    border-color: var(--accent-line);
-  }
-
-  .tag.removable {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    color: var(--text);
-  }
-
-  .tag-x {
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 0;
-    font-size: 0.95rem;
-    line-height: 1;
-  }
-  .tag-x:hover {
-    color: var(--red);
-  }
-
-  .tag-edit {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-
-  .tag-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-  }
-
-  .head-actions {
-    display: flex;
-    gap: 0.25rem;
-    flex-shrink: 0;
-  }
-
-  .handle {
-    cursor: grab;
-    touch-action: none;
-  }
-  .handle:active {
-    cursor: grabbing;
-  }
-
-  .progress-row {
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    margin: 1rem 0 0.6rem;
-  }
-
-  .progress-label {
-    font-size: 0.74rem;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-
-  .sessions {
-    list-style: none;
-    margin: 0.5rem 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-  }
-
-  .session {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.45rem 0.5rem 0.45rem 0.6rem;
-    border-radius: var(--r-sm);
-    border: 1px solid var(--border-soft);
-    background: var(--surface-2);
-    border-left: 2px solid var(--border-strong);
-    transition: border-color 0.15s ease, background 0.15s ease;
-  }
-
-  .session.upcoming {
-    border-left-color: var(--accent);
-  }
-  .session.overdue {
-    border-color: var(--red-line);
-    border-left-color: var(--red);
-    background: var(--red-soft);
-  }
-  .session.today {
-    border-color: var(--amber-line);
-    border-left-color: var(--amber);
-    background: var(--amber-soft);
-  }
-  .session.done {
-    opacity: 0.55;
-    border-left-color: var(--green);
-  }
-
-  .chk {
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-    cursor: pointer;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .date {
-    font-size: 0.86rem;
-    color: var(--text-strong);
-  }
-
-  .session.done .date {
-    text-decoration: line-through;
-    color: var(--muted);
-  }
-
-  .rel {
-    font-size: 0.72rem;
-    color: var(--muted);
-    margin-left: auto;
-    padding-left: 0.5rem;
-    white-space: nowrap;
-  }
-
-  .session.overdue .rel {
-    color: var(--red);
-  }
-  .session.today .rel {
-    color: var(--amber);
-    font-weight: 600;
-  }
-
-  .empty-sessions {
-    margin: 0.9rem 0 0.2rem;
-    color: var(--muted);
-    font-size: 0.85rem;
-  }
-
-  .adder {
-    margin-top: 1rem;
-    padding-top: 0.95rem;
-    border-top: 1px solid var(--border-soft);
-  }
-
-  .adder-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.6rem;
-    margin-bottom: 0.55rem;
-  }
-
-  .adder-label {
-    display: block;
-    font-size: 0.66rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--faint);
-  }
-
-  .adaptive-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.74rem;
-    font-weight: 600;
-    color: var(--muted);
-    cursor: pointer;
-  }
-  .adaptive-toggle:hover {
-    color: var(--text);
-  }
-
-  .warn {
-    margin: 0.55rem 0 0;
-    font-size: 0.76rem;
-    color: var(--amber);
-    line-height: 1.45;
-  }
-  .warn.resolved {
-    color: var(--green);
-  }
-
-  .smooth-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    margin-left: 0.45rem;
-    color: var(--text);
-    cursor: pointer;
-    font-weight: 600;
-  }
-  .smooth-toggle:hover {
-    color: var(--text-strong);
-  }
-
-  .seg {
-    display: inline-flex;
-    background: var(--inset);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    padding: 2px;
-    gap: 2px;
-  }
-
-  .seg.curve {
-    margin: 0.6rem 0;
-  }
-
-  .seg button {
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    padding: 0.34rem 0.8rem;
-    border-radius: var(--r-xs);
-    cursor: pointer;
-    font-family: var(--font-body);
-    font-size: 0.8rem;
-    font-weight: 600;
-    transition: color 0.15s ease, background 0.15s ease;
-  }
-
-  .seg button:hover {
-    color: var(--text);
-  }
-
-  .seg button.active {
-    background: var(--surface-3);
-    color: var(--text-strong);
-    box-shadow: var(--shadow-1);
-  }
-
-  .row {
-    display: flex;
-    align-items: flex-end;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    margin-top: 0.55rem;
-  }
-
-  .seg + .row,
-  .adder > .seg:first-of-type + .row {
-    margin-top: 0.6rem;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    font-size: 0.68rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--faint);
-  }
-
-  .field.grow {
-    flex: 1;
-    min-width: 150px;
-  }
-
-  .field.num {
-    width: 92px;
-  }
-
-  .field.num input {
-    width: 100%;
-  }
-
-  .hint {
-    margin: 0.4rem 0 0;
-    font-size: 0.74rem;
-    color: var(--muted);
-  }
-
-  .hint sup {
-    font-size: 0.6rem;
-  }
-
-  .preview {
-    margin: 0.6rem 0 0;
-    font-size: 0.78rem;
-    color: var(--accent-bright);
-  }
-
-  .preview.muted {
-    color: var(--muted);
-  }
-
-  .preview code {
-    background: var(--inset);
-    border: 1px solid var(--border-soft);
-    padding: 0.05rem 0.3rem;
-    border-radius: var(--r-xs);
-    color: var(--text);
-  }
-
-  .edit {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    width: 100%;
-  }
-
-  .edit-name,
-  .edit-desc {
-    width: 100%;
-  }
-
-  .edit-actions {
-    display: flex;
-    gap: 0.4rem;
-  }
-</style>
