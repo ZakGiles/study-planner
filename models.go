@@ -31,6 +31,26 @@ type Topic struct {
 // concrete colour. New topics cycle through this list so they start out distinct.
 var TopicColors = []string{"blue", "violet", "emerald", "amber", "rose", "cyan", "orange", "slate"}
 
+// pickColor returns the palette token least used by the existing topics,
+// breaking ties by the palette's natural order. For sequential adds with no
+// deletions this reproduces the plain round-robin cycle (blue, violet, …); once
+// deletions have unbalanced the counts it still hands new topics a distinct
+// colour rather than blindly repeating one. Topics with a reset ("") colour
+// don't count against any token.
+func pickColor(topics []*Topic) string {
+	counts := make(map[string]int, len(TopicColors))
+	for _, t := range topics {
+		counts[t.Color]++
+	}
+	best := TopicColors[0]
+	for _, c := range TopicColors[1:] {
+		if counts[c] < counts[best] {
+			best = c
+		}
+	}
+	return best
+}
+
 // validColor reports whether c is a known palette token. The empty string is
 // allowed and means "use the default accent".
 func validColor(c string) bool {

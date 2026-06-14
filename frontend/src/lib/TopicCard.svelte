@@ -26,6 +26,7 @@
     plural,
   } from './dates';
   import { makeMutator } from './mutate';
+  import { today } from './today';
   import { TOPIC_COLORS, topicHex } from './colors';
   import ConfirmModal from './ConfirmModal.svelte';
   import type { ModalAction } from './ConfirmModal.svelte';
@@ -108,6 +109,14 @@
   $: doneCount = topic.sessions.filter((s) => s.done).length;
   $: total = topic.sessions.length;
   $: progress = total ? Math.round((doneCount / total) * 100) : 0;
+
+  // Each session row with its time-relative status and label. `now` ($today) is
+  // a recompute trigger: a card left on screen past midnight re-derives overdue/
+  // today styling instead of keeping yesterday's.
+  $: sessionRows = topic.sessions.map((s) => {
+    void $today;
+    return { s, status: sessionStatus(s.date, s.done), label: s.done ? 'done' : relativeLabel(s.date) };
+  });
 
   const run = makeMutator({
     topics: (t) => dispatch('changed', t),
@@ -330,8 +339,8 @@
       <span class="tnum whitespace-nowrap text-[0.74rem] text-fg-muted">{doneCount}/{total}</span>
     </div>
     <ul class="m-0 mt-[0.5rem] flex list-none flex-col gap-[0.35rem] p-0">
-      {#each topic.sessions as s (s.id)}
-        <li class="chk-row flex items-center justify-between gap-2 rounded-sm border border-line-soft border-l-2 border-l-line-strong bg-surface-2 py-[0.45rem] pl-[0.6rem] pr-[0.5rem] transition-colors {sessionClass(sessionStatus(s.date, s.done))}">
+      {#each sessionRows as { s, status, label } (s.id)}
+        <li class="chk-row flex items-center justify-between gap-2 rounded-sm border border-line-soft border-l-2 border-l-line-strong bg-surface-2 py-[0.45rem] pl-[0.6rem] pr-[0.5rem] transition-colors {sessionClass(status)}">
           <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-[0.55rem]">
             <input
               type="checkbox"
@@ -341,9 +350,9 @@
               disabled={busy}
             />
             <span class="tnum text-[0.86rem] {s.done ? 'text-fg-muted line-through' : 'text-fg-strong'}">{formatDate(s.date)}</span>
-            <span class="tnum ml-auto whitespace-nowrap pl-2 text-[0.72rem] {relColor(sessionStatus(s.date, s.done))}">{s.done ? 'done' : relativeLabel(s.date)}</span>
+            <span class="tnum ml-auto whitespace-nowrap pl-2 text-[0.72rem] {relColor(status)}">{label}</span>
           </label>
-          {#if sessionStatus(s.date, s.done) === 'overdue'}
+          {#if status === 'overdue'}
             <button
               class="icon-btn small"
               title="Move to today"

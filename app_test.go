@@ -436,6 +436,30 @@ func TestNormalizeTags(t *testing.T) {
 	}
 }
 
+func TestPickColor(t *testing.T) {
+	// Sequential adds (no deletes) reproduce the plain round-robin cycle.
+	var topics []*Topic
+	for i, want := range []string{"blue", "violet", "emerald"} {
+		if got := pickColor(topics); got != want {
+			t.Fatalf("add %d: pickColor = %q, want %q", i, got, want)
+		}
+		topics = append(topics, &Topic{Color: pickColor(topics)})
+	}
+
+	// After deleting the only "blue" topic, the next add reuses blue (the now
+	// least-used token) rather than blindly continuing the cycle.
+	topics = []*Topic{{Color: "violet"}, {Color: "emerald"}}
+	if got := pickColor(topics); got != "blue" {
+		t.Fatalf("pickColor after delete = %q, want blue (least used)", got)
+	}
+
+	// Reset ("") colours don't count against any palette token.
+	topics = []*Topic{{Color: ""}, {Color: ""}}
+	if got := pickColor(topics); got != "blue" {
+		t.Fatalf("pickColor with reset colours = %q, want blue", got)
+	}
+}
+
 func TestNormalizeOrder(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	topics := []*Topic{
