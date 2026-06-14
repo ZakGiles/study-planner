@@ -43,6 +43,14 @@ func (a *App) startup(ctx context.Context) {
 	go a.notifyDueToday()
 }
 
+// shutdown is called when the app exits; it closes the database handle so the
+// WAL is checkpointed cleanly.
+func (a *App) shutdown(ctx context.Context) {
+	if a.store != nil {
+		a.store.Close()
+	}
+}
+
 // notifyDueToday sends a native notification summarising today's workload.
 // Every step is best-effort: notifications are unavailable in unbundled dev
 // builds and the user may decline authorization, neither of which should

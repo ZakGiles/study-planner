@@ -12,16 +12,18 @@ import (
 // derive every date from this same instant.
 var testClock = time.Date(2026, 6, 12, 12, 0, 0, 0, time.Local)
 
-// newTestApp returns an App backed by a store in a temp directory, bypassing
-// the real user config dir, with a frozen clock.
+// newTestApp returns an App backed by a SQLite store in a temp directory,
+// bypassing the real user config dir, with a frozen clock.
 func newTestApp(t *testing.T) *App {
 	t.Helper()
+	store, err := openStore(filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
 	return &App{
-		store: &Store{
-			path:   filepath.Join(t.TempDir(), "data.json"),
-			topics: []*Topic{},
-		},
-		now: func() time.Time { return testClock },
+		store: store,
+		now:   func() time.Time { return testClock },
 	}
 }
 
