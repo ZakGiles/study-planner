@@ -2,7 +2,8 @@
   import { createEventDispatcher } from 'svelte';
   import type { main } from '../../wailsjs/go/models';
   import { AddSession, GradeSession, ToggleSession } from '../../wailsjs/go/main/App.js';
-  import { toISO, todayISO, formatDate, relativeLabel, sessionStatus, plural } from './dates';
+  import { toISO, formatDate, relativeLabel, sessionStatus, plural } from './dates';
+  import { today } from './today';
   import { topicHex } from './colors';
   import { makeMutator } from './mutate';
   import ConfirmModal from './ConfirmModal.svelte';
@@ -64,7 +65,9 @@
   $: cells = (() => {
     const first = new Date(viewYear, viewMonth, 1);
     const lead = (first.getDay() + 6) % 7; // days from the preceding Monday to the 1st
-    const today = todayISO();
+    // $today (not a one-off read) so the "today" cell + event statuses refresh
+    // when the day rolls over while the calendar is open.
+    const todayStr = $today;
     const out: Cell[] = [];
     const cur = new Date(viewYear, viewMonth, 1 - lead);
     for (let i = 0; i < 42; i++) {
@@ -73,7 +76,7 @@
         iso,
         day: cur.getDate(),
         inMonth: cur.getMonth() === viewMonth,
-        isToday: iso === today,
+        isToday: iso === todayStr,
         sessions: byDate.get(iso) ?? [],
       });
       cur.setDate(cur.getDate() + 1);

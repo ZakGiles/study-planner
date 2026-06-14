@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { main } from '../../wailsjs/go/models';
-  import { parseDate, toISO, todayISO, formatDate, plural, MONTHS } from './dates';
+  import { parseDate, toISO, formatDate, plural, MONTHS } from './dates';
+  import { today } from './today';
   import { topicHex } from './colors';
 
   // All topics, archived included — completed history shouldn't vanish when a
@@ -14,12 +15,12 @@
   // scheduled date; the few legacy ones dated in the future are skipped.
   $: doneByDay = (() => {
     const m = new Map<string, number>();
-    const today = todayISO();
+    const todayStr = $today;
     for (const t of topics) {
       for (const s of t.sessions) {
         if (!s.done) continue;
         const day = s.completedAt ? toISO(new Date(s.completedAt)) : s.date;
-        if (day > today) continue;
+        if (day > todayStr) continue;
         m.set(day, (m.get(day) ?? 0) + 1);
       }
     }
@@ -42,25 +43,25 @@
       longest = Math.max(longest, run);
       prev = d;
     }
-    const today = dayNum(todayISO());
+    const todayNum = dayNum($today);
     const have = new Set(days);
     let current = 0;
-    for (let d = have.has(today) ? today : today - 1; have.has(d); d--) current++;
+    for (let d = have.has(todayNum) ? todayNum : todayNum - 1; have.has(d); d--) current++;
     return { current, longest };
   })();
 
   $: totalDone = topics.reduce((n, t) => n + t.sessions.filter((s) => s.done).length, 0);
   $: dueToday = topics
     .filter((t) => !t.archived)
-    .reduce((n, t) => n + t.sessions.filter((s) => !s.done && s.date === todayISO()).length, 0);
+    .reduce((n, t) => n + t.sessions.filter((s) => !s.done && s.date === $today).length, 0);
 
   type HeatCell = { iso: string; count: number; level: number; future: boolean };
 
   // A GitHub-style heatmap: WEEKS columns of Monday-first weeks ending in the
   // current week.
   $: weeks = (() => {
-    const today = todayISO();
-    const t = parseDate(today);
+    const todayStr = $today;
+    const t = parseDate(todayStr);
     const dow = (t.getDay() + 6) % 7; // 0 = Monday
     const cur = new Date(t);
     cur.setDate(cur.getDate() - dow - (WEEKS - 1) * 7);
@@ -70,7 +71,7 @@
       for (let d = 0; d < 7; d++) {
         const iso = toISO(cur);
         const count = doneByDay.get(iso) ?? 0;
-        col.push({ iso, count, level: Math.min(4, count), future: iso > today });
+        col.push({ iso, count, level: Math.min(4, count), future: iso > todayStr });
         cur.setDate(cur.getDate() + 1);
       }
       out.push(col);

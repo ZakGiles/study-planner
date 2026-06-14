@@ -15,7 +15,8 @@
   import GradeModal from './lib/GradeModal.svelte';
   import { openModalCount } from './lib/ConfirmModal.svelte';
   import { makeMutator } from './lib/mutate';
-  import { formatDate, relativeLabel, daysFromToday, sessionStatus, plural } from './lib/dates';
+  import { formatDate, relativeLabel, sessionStatus, plural } from './lib/dates';
+  import { today } from './lib/today';
   import { topicHex } from './lib/colors';
   import { dndzone } from 'svelte-dnd-action';
   import type { DndEvent } from 'svelte-dnd-action';
@@ -249,24 +250,43 @@
     return m;
   })();
 
-  $: overdueCount = agenda.filter((a) => daysFromToday(a.date) < 0).length;
   $: totalSessions = visibleActive.reduce((n, t) => n + t.sessions.length, 0);
   $: doneSessions = visibleActive.reduce((n, t) => n + t.sessions.filter((s) => s.done).length, 0);
   $: overallPct = totalSessions ? Math.round((doneSessions / totalSessions) * 100) : 0;
 
-  // Group date-sorted agenda items by date for display.
-  function groupByDate(items: AgendaItem[]) {
-    const groups: { date: string; items: AgendaItem[] }[] = [];
+  // Group date-sorted agenda items by date, attaching each day's time-relative
+  // status and label. `now` is the current date ($today): passing it in makes
+  // the grouping recompute when the day rolls over, so the labels and overdue
+  // styling stay correct in an app left open past midnight.
+  type AgendaGroup = {
+    date: string;
+    items: AgendaItem[];
+    status: ReturnType<typeof sessionStatus>;
+    label: string;
+  };
+  function groupByDate(items: AgendaItem[], now: string): AgendaGroup[] {
+    void now; // dependency marker — see comment above
+    const groups: AgendaGroup[] = [];
     for (const item of items) {
       const last = groups[groups.length - 1];
       if (last && last.date === item.date) last.items.push(item);
-      else groups.push({ date: item.date, items: [item] });
+      else
+        groups.push({
+          date: item.date,
+          items: [item],
+          status: sessionStatus(item.date),
+          label: relativeLabel(item.date),
+        });
     }
     return groups;
   }
 
-  $: agendaGroups = groupByDate(agenda);
-  $: pastGroups = groupByDate(pastAgenda);
+  $: agendaGroups = groupByDate(agenda, $today);
+  $: pastGroups = groupByDate(pastAgenda, $today);
+  $: overdueCount = agendaGroups.reduce(
+    (n, g) => n + (g.status === 'overdue' ? g.items.length : 0),
+    0
+  );
 
   // Per-view header copy for the sticky content header.
   const TAB_META = {
@@ -529,10 +549,10 @@
                 <ul class="m-0 flex list-none flex-col gap-[0.7rem] p-0">
                   {#each agendaGroups as group (group.date)}
                     <li class="relative overflow-hidden rounded-md border border-line bg-surface py-[0.75rem] pl-[1.1rem] pr-[0.95rem] transition-colors hover:border-line-strong">
-                      <span class="absolute bottom-0 left-0 top-0 w-[3px] {barClass(sessionStatus(group.date))}" aria-hidden="true"></span>
+                      <span class="absolute bottom-0 left-0 top-0 w-[3px] {barClass(group.status)}" aria-hidden="true"></span>
                       <div class="mb-2 flex items-baseline justify-between gap-2">
                         <span class="tnum text-[0.92rem] font-semibold text-fg-strong">{formatDate(group.date)}</span>
-                        <span class="tnum text-[0.76rem] {relClass(sessionStatus(group.date))}">{relativeLabel(group.date)}</span>
+                        <span class="tnum text-[0.76rem] {relClass(group.status)}">{group.label}</span>
                       </div>
                       <ul class="m-0 flex list-none flex-col gap-[0.4rem] p-0">
                         {#each group.items as item (item.sessionId)}
@@ -565,7 +585,7 @@
                         <span class="absolute bottom-0 left-0 top-0 w-[3px] bg-green" aria-hidden="true"></span>
                         <div class="mb-2 flex items-baseline justify-between gap-2">
                           <span class="tnum text-[0.92rem] font-semibold text-fg-strong">{formatDate(group.date)}</span>
-                          <span class="tnum text-[0.76rem] text-fg-muted">{relativeLabel(group.date)}</span>
+                          <span class="tnum text-[0.76rem] text-fg-muted">{group.label}</span>
                         </div>
                         <ul class="m-0 flex list-none flex-col gap-[0.4rem] p-0">
                           {#each group.items as item (item.sessionId)}

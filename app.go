@@ -40,7 +40,27 @@ func (a *App) startup(ctx context.Context) {
 		return
 	}
 	a.store = store
-	go a.notifyDueToday()
+	go a.notifyLoop()
+}
+
+// notifyLoop sends the due-today summary at startup and then once at each
+// following local midnight, so an app left running across days still surfaces
+// each new day's workload (a single startup notification would otherwise be the
+// only one a long-running session ever gets). It exits when the app context is
+// cancelled on shutdown.
+func (a *App) notifyLoop() {
+	for {
+		a.notifyDueToday()
+		now := a.now()
+		midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		timer := time.NewTimer(midnight.AddDate(0, 0, 1).Sub(now))
+		select {
+		case <-a.ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
 }
 
 // shutdown is called when the app exits; it closes the database handle so the
@@ -201,7 +221,7 @@ func (a *App) AddTopic(name, description string) ([]*Topic, error) {
 			ID:          uuid.NewString(),
 			Name:        name,
 			Description: strings.TrimSpace(description),
-			Color:       TopicColors[len(a.store.topics)%len(TopicColors)],
+			Color:       pickColor(a.store.topics),
 			Tags:        []string{},
 			Order:       len(a.store.topics),
 			CreatedAt:   a.now(),
