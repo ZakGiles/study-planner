@@ -28,6 +28,7 @@ func main() {
 		// 255), so the window background needs full opacity, not 1.
 		BackgroundColour: &options.RGBA{R: 11, G: 17, B: 24, A: 255},
 		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
 		Bind: []interface{}{
 			app,
 		},
