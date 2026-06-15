@@ -1,16 +1,20 @@
-# README
+# Study Planner
 
-## About
+A desktop spaced-repetition study planner. Add **topics** to revise, schedule
+study **sessions** (by hand or with a spaced-repetition plan), tick them off, and
+let "adaptive" topics re-space themselves based on how well you recalled the
+material.
 
-This is the official Wails Svelte-TS template.
+Built with [Wails](https://wails.io): a **Go** backend + a **Svelte + TypeScript**
+frontend, shipped as a single native binary. Data is stored locally in **SQLite**.
 
-## Live Development
+## Quick start
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+```bash
+go install github.com/wailsapp/wails/v2/cmd/wails@latest   # once
+wails dev      # run with hot reload
+wails build    # produce a distributable binary in build/bin/
+go test ./...  # run the Go tests
+```
 
-## Building
-
-To build a redistributable, production mode package, use `wails build`.
+See [docs/05](docs/05-dev-workflow.md) for prerequisites and details.
