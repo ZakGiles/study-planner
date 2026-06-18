@@ -22,7 +22,7 @@
   import type { DndEvent } from 'svelte-dnd-action';
 
   let topics: main.Topic[] = [];
-  let activeTab: 'topics' | 'agenda' | 'calendar' | 'stats' = 'topics';
+  let activeTab: 'topics' | 'agenda' | 'calendar' | 'stats' | 'focus' = 'topics';
   let loading = true;
   let errorMsg = '';
   let errorTimer: ReturnType<typeof setTimeout>;
@@ -294,6 +294,7 @@
     agenda: { title: 'Agenda', sub: "What's coming up next" },
     calendar: { title: 'Calendar', sub: 'Your month at a glance' },
     stats: { title: 'Stats', sub: 'Progress and streaks' },
+    focus: { title: 'Focus', sub: 'Keep track of study time' },
   } as const;
   $: tabMeta = TAB_META[activeTab];
 
@@ -302,6 +303,7 @@
     { id: 'agenda', label: 'Agenda' },
     { id: 'calendar', label: 'Calendar' },
     { id: 'stats', label: 'Stats' },
+    { id: 'focus', label: 'Focus' },
   ] as const;
 
   // Status → Tailwind colour utilities for the agenda day cards.
@@ -350,9 +352,18 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="3" y="4.5" width="18" height="16.5" rx="2.5" /><path d="M3 9.5h18" /><path d="M8 2.5v4" /><path d="M16 2.5v4" />
               </svg>
-            {:else}
+            {:else if item.id === 'stats'}
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <rect x="3" y="11" width="4.5" height="9" rx="1.2" /><rect x="9.75" y="5" width="4.5" height="15" rx="1.2" /><rect x="16.5" y="8" width="4.5" height="12" rx="1.2" />
+              </svg>
+            {:else}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <circle cx="12" cy="12" r="3" fill="currentColor" />
+                <line x1="12" y1="1" x2="12" y2="4" />
+                <line x1="12" y1="20" x2="12" y2="23" />
+                <line x1="1" y1="12" x2="4" y2="12" />
+                <line x1="20" y1="12" x2="23" y2="12" />
               </svg>
             {/if}
           </span>
@@ -613,8 +624,10 @@
             </section>
           {:else if activeTab === 'calendar'}
             <Calendar topics={visibleActive} on:changed={onChanged} on:error={onError} />
-          {:else}
+          {:else if activeTab === 'stats'}
             <Stats {topics} />
+          {:else}
+            <p>placeholder for focus</p>
           {/if}
         </div>
     {/if}
