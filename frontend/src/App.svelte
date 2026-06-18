@@ -8,10 +8,12 @@
     ReorderTopics,
     RescheduleOverdueSessions,
     GradeSession,
+    GetFocusSessions,
   } from '../wailsjs/go/main/App.js';
   import TopicCard from './lib/TopicCard.svelte';
   import Calendar from './lib/Calendar.svelte';
   import Stats from './lib/Stats.svelte';
+  import Focus from './lib/Focus.svelte';
   import GradeModal from './lib/GradeModal.svelte';
   import { openModalCount } from './lib/ConfirmModal.svelte';
   import { makeMutator } from './lib/mutate';
@@ -22,6 +24,10 @@
   import type { DndEvent } from 'svelte-dnd-action';
 
   let topics: main.Topic[] = [];
+  // Focus records live alongside topics but on their own backend log; App owns
+  // them so the Focus tab (which records) and the Stats tab (which reads) share
+  // one source of truth.
+  let focusSessions: main.FocusSession[] = [];
   let activeTab: 'topics' | 'agenda' | 'calendar' | 'stats' | 'focus' = 'topics';
   let loading = true;
   let errorMsg = '';
@@ -81,6 +87,13 @@
 
   onMount(async () => {
     await apply(GetTopics());
+    // Focus history isn't part of the topic graph, so it loads on its own; a
+    // failure here shouldn't block the rest of the app from rendering.
+    try {
+      focusSessions = await GetFocusSessions();
+    } catch (e) {
+      showError(`Couldn't load focus history: ${e}`);
+    }
     loading = false;
   });
 
@@ -625,10 +638,20 @@
           {:else if activeTab === 'calendar'}
             <Calendar topics={visibleActive} on:changed={onChanged} on:error={onError} />
           {:else if activeTab === 'stats'}
-            <Stats {topics} />
-          {:else}
-            <p>placeholder for focus</p>
+            <Stats {topics} {focusSessions} />
           {/if}
+
+          <!-- Focus stays mounted (just hidden) across tab switches so a running
+               timer pauses and resumes rather than being destroyed. -->
+          <div class:hidden={activeTab !== 'focus'}>
+            <Focus
+              {topics}
+              {focusSessions}
+              active={activeTab === 'focus'}
+              on:recorded={(e) => (focusSessions = e.detail)}
+              on:error={onError}
+            />
+          </div>
         </div>
     {/if}
     </div>

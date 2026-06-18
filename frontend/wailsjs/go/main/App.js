@@ -22,12 +22,20 @@ export function DeleteTopic(arg1) {
   return window['go']['main']['App']['DeleteTopic'](arg1);
 }
 
+export function GetFocusSessions() {
+  return window['go']['main']['App']['GetFocusSessions']();
+}
+
 export function GetTopics() {
   return window['go']['main']['App']['GetTopics']();
 }
 
 export function GradeSession(arg1, arg2, arg3) {
   return window['go']['main']['App']['GradeSession'](arg1, arg2, arg3);
+}
+
+export function RecordFocusSession(arg1, arg2) {
+  return window['go']['main']['App']['RecordFocusSession'](arg1, arg2);
 }
 
 export function ReorderTopics(arg1) {

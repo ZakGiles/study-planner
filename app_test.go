@@ -478,3 +478,84 @@ func TestNormalizeOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestRecordFocusSession(t *testing.T) {
+	a := newTestApp(t)
+	topics, err := a.AddTopic("Maths", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	topicID := topics[0].ID
+
+	// A focus block against a topic is logged and stamped with the clock.
+	focus, err := a.RecordFocusSession(topicID, 1500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(focus) != 1 {
+		t.Fatalf("focus count = %d, want 1", len(focus))
+	}
+	if focus[0].TopicID != topicID || focus[0].DurationSec != 1500 {
+		t.Fatalf("focus = %+v, want topic %s / 1500s", focus[0], topicID)
+	}
+	if !focus[0].CompletedAt.Equal(testClock) {
+		t.Fatalf("completedAt = %v, want %v", focus[0].CompletedAt, testClock)
+	}
+
+	// General focus ("" topic) is allowed.
+	if focus, err = a.RecordFocusSession("", 600); err != nil {
+		t.Fatal(err)
+	}
+	if len(focus) != 2 {
+		t.Fatalf("focus count = %d, want 2", len(focus))
+	}
+
+	// Non-positive duration and unknown topic are rejected.
+	if _, err := a.RecordFocusSession(topicID, 0); err == nil {
+		t.Fatal("expected error for zero duration")
+	}
+	if _, err := a.RecordFocusSession("nope", 60); err == nil {
+		t.Fatal("expected error for unknown topic")
+	}
+}
+
+func TestFocusSurvivesTopicMutationAndReload(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "data.db")
+	store, err := openStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{store: store, now: func() time.Time { return testClock }}
+
+	topics, _ := a.AddTopic("Maths", "")
+	topicID := topics[0].ID
+	if _, err := a.RecordFocusSession(topicID, 1500); err != nil {
+		t.Fatal(err)
+	}
+
+	// A topic mutation rewrites the whole topic graph via save(); the focus log
+	// must not be wiped by that. Deleting the topic leaves the focus row intact
+	// (its topic_id simply dangles).
+	if _, err := a.DeleteTopic(topicID); err != nil {
+		t.Fatal(err)
+	}
+	focus, err := a.GetFocusSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(focus) != 1 || focus[0].TopicID != topicID {
+		t.Fatalf("focus after topic delete = %+v, want 1 record keeping its topic id", focus)
+	}
+	store.Close()
+
+	// And it persists across a reopen.
+	reopened, err := openStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if len(reopened.focus) != 1 || reopened.focus[0].DurationSec != 1500 {
+		t.Fatalf("focus after reload = %+v, want 1 record of 1500s", reopened.focus)
+	}
+}

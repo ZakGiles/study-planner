@@ -12,9 +12,13 @@ export function DeleteSession(arg1:string,arg2:string):Promise<Array<main.Topic>
 
 export function DeleteTopic(arg1:string):Promise<Array<main.Topic>>;
 
+export function GetFocusSessions():Promise<Array<main.FocusSession>>;
+
 export function GetTopics():Promise<Array<main.Topic>>;
 
 export function GradeSession(arg1:string,arg2:string,arg3:string):Promise<Array<main.Topic>>;
+
+export function RecordFocusSession(arg1:string,arg2:number):Promise<Array<main.FocusSession>>;
 
 export function ReorderTopics(arg1:Array<string>):Promise<Array<main.Topic>>;
 

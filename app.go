@@ -369,6 +369,58 @@ func (a *App) ToggleSession(topicID, sessionID string) ([]*Topic, error) {
 	})
 }
 
+// focusSnapshot returns a sorted (oldest first), deep-copied view of the focus
+// log. The caller must hold the lock; copying keeps Wails from serializing
+// interior pointers that the next append could race with.
+func (a *App) focusSnapshot() []*FocusSession {
+	out := make([]*FocusSession, len(a.store.focus))
+	for i, f := range a.store.focus {
+		c := *f
+		out[i] = &c
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].CompletedAt.Before(out[j].CompletedAt)
+	})
+	return out
+}
+
+// GetFocusSessions returns the whole completed-focus-block log.
+func (a *App) GetFocusSessions() ([]*FocusSession, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	a.store.mu.Lock()
+	defer a.store.mu.Unlock()
+	return a.focusSnapshot(), nil
+}
+
+// RecordFocusSession logs a completed focus block of durationSec seconds against
+// topicID ("" for general focus, otherwise an existing topic) and returns the
+// full focus log so the frontend can replace its state in one go. Only the
+// frontend's completed blocks reach here — abandoned time is never recorded.
+func (a *App) RecordFocusSession(topicID string, durationSec int) ([]*FocusSession, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	if durationSec <= 0 {
+		return nil, errors.New("focus duration must be positive")
+	}
+	a.store.mu.Lock()
+	defer a.store.mu.Unlock()
+	if topicID != "" && a.store.find(topicID) == nil {
+		return nil, errors.New("topic not found")
+	}
+	if err := a.store.addFocusSession(&FocusSession{
+		ID:          uuid.NewString(),
+		TopicID:     topicID,
+		DurationSec: durationSec,
+		CompletedAt: a.now(),
+	}); err != nil {
+		return nil, err
+	}
+	return a.focusSnapshot(), nil
+}
+
 // SetTopicAdaptive enables or disables grade-based rescheduling for a topic.
 func (a *App) SetTopicAdaptive(id string, adaptive bool) ([]*Topic, error) {
 	return a.mutateTopic(id, func(t *Topic) error {

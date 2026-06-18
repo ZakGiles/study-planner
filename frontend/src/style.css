@@ -156,6 +156,7 @@
   input[type="text"],
   input[type="date"],
   input[type="number"],
+  select,
   textarea {
     font: inherit;
     color: var(--text-strong);
@@ -167,9 +168,20 @@
     transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
   }
 
+  select {
+    cursor: pointer;
+    appearance: none;
+    /* Caret drawn inline so it tints with the text colour across themes. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238195a6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+    padding-right: 1.9rem;
+  }
+
   input[type="text"]:hover,
   input[type="date"]:hover,
   input[type="number"]:hover,
+  select:hover,
   textarea:hover {
     border-color: var(--border-strong);
   }
@@ -177,10 +189,16 @@
   input[type="text"]:focus,
   input[type="date"]:focus,
   input[type="number"]:focus,
+  select:focus,
   textarea:focus {
     border-color: var(--accent);
     background: var(--surface-2);
     box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   textarea {

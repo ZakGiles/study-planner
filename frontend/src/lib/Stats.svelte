@@ -7,6 +7,8 @@
   // All topics, archived included — completed history shouldn't vanish when a
   // topic is shelved.
   export let topics: main.Topic[] = [];
+  // Completed focus blocks from the timer, owned by App.
+  export let focusSessions: main.FocusSession[] = [];
 
   const WEEKS = 26;
 
@@ -101,6 +103,77 @@
     return `${c.count} session${plural(c.count)} — ${formatDate(c.iso)}`;
   }
 
+  // ---- Focus time (from the Pomodoro timer) ----
+  function fmtDuration(sec: number): string {
+    const m = Math.round(sec / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    const r = m % 60;
+    return r ? `${h}h ${r}m` : `${h}h`;
+  }
+
+  // Focus seconds completed per local day, capped at today.
+  $: focusByDay = (() => {
+    const m = new Map<string, number>();
+    const todayStr = $today;
+    for (const f of focusSessions) {
+      const day = toISO(new Date(f.completedAt));
+      if (day > todayStr) continue;
+      m.set(day, (m.get(day) ?? 0) + f.durationSec);
+    }
+    return m;
+  })();
+
+  $: totalFocusSec = focusSessions.reduce((n, f) => n + f.durationSec, 0);
+
+  // Reuse the heatmap's date layout (weeks), swapping in focus minutes. Levels
+  // step at 25/50/90 minutes so a single Pomodoro already registers.
+  function focusLevel(sec: number): number {
+    const m = sec / 60;
+    if (m <= 0) return 0;
+    if (m < 25) return 1;
+    if (m < 50) return 2;
+    if (m < 90) return 3;
+    return 4;
+  }
+  $: focusWeeks = weeks.map((col) =>
+    col.map((c) => {
+      const sec = focusByDay.get(c.iso) ?? 0;
+      return { iso: c.iso, sec, level: focusLevel(sec), future: c.future };
+    })
+  );
+  function focusCellTitle(iso: string, sec: number, future: boolean): string {
+    if (future) return formatDate(iso);
+    return `${fmtDuration(sec)} focused — ${formatDate(iso)}`;
+  }
+
+  $: focusByTopic = (() => {
+    const m = new Map<string, number>();
+    for (const f of focusSessions) m.set(f.topicId, (m.get(f.topicId) ?? 0) + f.durationSec);
+    return [...m.entries()]
+      .map(([id, sec]) => {
+        const t = topics.find((x) => x.id === id);
+        return {
+          id,
+          sec,
+          name: id === '' ? 'General focus' : t?.name ?? 'Deleted topic',
+          hex: id === '' || !t ? 'var(--muted)' : topicHex(t.color),
+          known: id !== '' && !!t,
+        };
+      })
+      .sort((a, b) => b.sec - a.sec);
+  })();
+
+  // Warm palette so the focus heatmap reads distinctly from the accent-blue
+  // sessions one above it.
+  const FOCUS_HEAT = [
+    'border border-line-soft bg-inset',
+    'border border-transparent [background:color-mix(in_srgb,var(--amber)_30%,var(--inset))]',
+    'border border-transparent [background:color-mix(in_srgb,var(--amber)_55%,var(--inset))]',
+    'border border-transparent [background:color-mix(in_srgb,var(--amber)_80%,var(--inset))]',
+    'border border-transparent bg-amber',
+  ];
+
   // Heatmap intensity (0–4) → Tailwind utilities, mixing the accent into the
   // inset so both themes stay legible.
   const HEAT = [
@@ -129,6 +202,10 @@
     <div class="flex flex-col gap-[0.2rem] rounded-lg border border-line bg-surface px-4 py-[0.9rem] shadow-1">
       <span class="tnum font-display text-[1.7rem] font-extrabold leading-none text-fg-strong">{dueToday}</span>
       <span class="text-[0.78rem] text-fg-muted">due today</span>
+    </div>
+    <div class="flex flex-col gap-[0.2rem] rounded-lg border border-line bg-surface px-4 py-[0.9rem] shadow-1">
+      <span class="tnum font-display text-[1.7rem] font-extrabold leading-none text-fg-strong">{fmtDuration(totalFocusSec)}</span>
+      <span class="text-[0.78rem] text-fg-muted">time focused</span>
     </div>
   </div>
 
@@ -174,6 +251,48 @@
             <span class="min-w-0 flex-[0_1_auto] overflow-hidden text-ellipsis whitespace-nowrap text-[0.88rem] text-fg">{t.name}{#if t.archived}<span class="ml-[0.4rem] text-[0.64rem] uppercase tracking-[0.06em] text-fg-faint">archived</span>{/if}</span>
             <span class="bar min-w-[60px]"><span class="fill" style="width:{(t.done / t.total) * 100}%; background:{t.hex}"></span></span>
             <span class="tnum shrink-0 text-[0.76rem] text-fg-muted">{t.done}/{t.total}</span>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
+
+  {#if focusSessions.length}
+    <div class="rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
+      <div class="mb-[0.85rem] flex items-baseline justify-between gap-2">
+        <h2 class="m-0 font-display text-base font-bold text-fg-strong">Focus time</h2>
+        <span class="inline-flex items-center gap-[3px] text-[0.7rem] text-fg-faint">
+          less
+          {#each [0, 1, 2, 3, 4] as l}<span class="h-[13px] w-[13px] rounded-[3px] {FOCUS_HEAT[l]}"></span>{/each}
+          more
+        </span>
+      </div>
+      <div class="flex gap-[6px] overflow-x-auto pb-[0.2rem]">
+        <div class="mt-[17px] grid grid-rows-[repeat(7,13px)] gap-[3px] text-[0.62rem] leading-[13px] text-fg-faint">
+          <span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>
+        </div>
+        <div class="min-w-0">
+          <div class="mb-[3px] grid h-[14px] grid-cols-[repeat(var(--weeks),13px)] gap-[3px] whitespace-nowrap text-[0.62rem] text-fg-faint" style="--weeks:{WEEKS}">
+            {#each monthLabels as m}<span>{m}</span>{/each}
+          </div>
+          <div class="flex gap-[3px]">
+            {#each focusWeeks as col}
+              <div class="grid grid-rows-[repeat(7,13px)] gap-[3px]">
+                {#each col as c (c.iso)}
+                  <span class="h-[13px] w-[13px] rounded-[3px] {FOCUS_HEAT[c.level]} {c.future ? 'opacity-[0.35]' : ''}" title={focusCellTitle(c.iso, c.sec, c.future)}></span>
+                {/each}
+              </div>
+            {/each}
+          </div>
+        </div>
+      </div>
+
+      <ul class="m-0 mt-[1.1rem] flex list-none flex-col gap-[0.55rem] p-0">
+        {#each focusByTopic as row (row.id)}
+          <li class="flex items-center gap-[0.6rem]">
+            <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{row.hex}"></span>
+            <span class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.88rem] {row.known ? 'text-fg' : 'italic text-fg-muted'}">{row.name}</span>
+            <span class="tnum shrink-0 text-[0.76rem] text-fg-muted">{fmtDuration(row.sec)}</span>
           </li>
         {/each}
       </ul>
