@@ -105,6 +105,20 @@ func normalizeOrder(topics []*Topic) {
 	}
 }
 
+// FocusSession is a completed focus block from the Pomodoro-style focus timer.
+// TopicID is the topic the user focused on, or "" for general focus not tied to
+// a topic. Unlike sessions, focus records carry no SQL foreign key to topics:
+// the store's whole-graph save() rewrites the topics table on every mutation,
+// which would cascade onto focus history; keeping topic_id a plain string lets
+// the focus log persist independently and survive topic edits and deletes. Only
+// completed focus blocks are recorded — abandoned or partial time is not.
+type FocusSession struct {
+	ID          string    `json:"id"`
+	TopicID     string    `json:"topicId"` // "" = general focus
+	DurationSec int       `json:"durationSec"`
+	CompletedAt time.Time `json:"completedAt"`
+}
+
 // Session is a single planned study date for a topic. CompletedAt records when
 // it was actually checked off (nil while not done; legacy done sessions from
 // before this field also have nil, and consumers fall back to Date).

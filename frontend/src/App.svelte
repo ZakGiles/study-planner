@@ -8,10 +8,12 @@
     ReorderTopics,
     RescheduleOverdueSessions,
     GradeSession,
+    GetFocusSessions,
   } from '../wailsjs/go/main/App.js';
   import TopicCard from './lib/TopicCard.svelte';
   import Calendar from './lib/Calendar.svelte';
   import Stats from './lib/Stats.svelte';
+  import Focus from './lib/Focus.svelte';
   import GradeModal from './lib/GradeModal.svelte';
   import { openModalCount } from './lib/ConfirmModal.svelte';
   import { makeMutator } from './lib/mutate';
@@ -22,7 +24,11 @@
   import type { DndEvent } from 'svelte-dnd-action';
 
   let topics: main.Topic[] = [];
-  let activeTab: 'topics' | 'agenda' | 'calendar' | 'stats' = 'topics';
+  // Focus records live alongside topics but on their own backend log; App owns
+  // them so the Focus tab (which records) and the Stats tab (which reads) share
+  // one source of truth.
+  let focusSessions: main.FocusSession[] = [];
+  let activeTab: 'topics' | 'agenda' | 'calendar' | 'stats' | 'focus' = 'topics';
   let loading = true;
   let errorMsg = '';
   let errorTimer: ReturnType<typeof setTimeout>;
@@ -81,6 +87,13 @@
 
   onMount(async () => {
     await apply(GetTopics());
+    // Focus history isn't part of the topic graph, so it loads on its own; a
+    // failure here shouldn't block the rest of the app from rendering.
+    try {
+      focusSessions = await GetFocusSessions();
+    } catch (e) {
+      showError(`Couldn't load focus history: ${e}`);
+    }
     loading = false;
   });
 
@@ -294,6 +307,7 @@
     agenda: { title: 'Agenda', sub: "What's coming up next" },
     calendar: { title: 'Calendar', sub: 'Your month at a glance' },
     stats: { title: 'Stats', sub: 'Progress and streaks' },
+    focus: { title: 'Focus', sub: 'Keep track of study time' },
   } as const;
   $: tabMeta = TAB_META[activeTab];
 
@@ -302,6 +316,7 @@
     { id: 'agenda', label: 'Agenda' },
     { id: 'calendar', label: 'Calendar' },
     { id: 'stats', label: 'Stats' },
+    { id: 'focus', label: 'Focus' },
   ] as const;
 
   // Status → Tailwind colour utilities for the agenda day cards.
@@ -350,9 +365,18 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="3" y="4.5" width="18" height="16.5" rx="2.5" /><path d="M3 9.5h18" /><path d="M8 2.5v4" /><path d="M16 2.5v4" />
               </svg>
-            {:else}
+            {:else if item.id === 'stats'}
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <rect x="3" y="11" width="4.5" height="9" rx="1.2" /><rect x="9.75" y="5" width="4.5" height="15" rx="1.2" /><rect x="16.5" y="8" width="4.5" height="12" rx="1.2" />
+              </svg>
+            {:else}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <circle cx="12" cy="12" r="3" fill="currentColor" />
+                <line x1="12" y1="1" x2="12" y2="4" />
+                <line x1="12" y1="20" x2="12" y2="23" />
+                <line x1="1" y1="12" x2="4" y2="12" />
+                <line x1="20" y1="12" x2="23" y2="12" />
               </svg>
             {/if}
           </span>
@@ -613,9 +637,21 @@
             </section>
           {:else if activeTab === 'calendar'}
             <Calendar topics={visibleActive} on:changed={onChanged} on:error={onError} />
-          {:else}
-            <Stats {topics} />
+          {:else if activeTab === 'stats'}
+            <Stats {topics} {focusSessions} />
           {/if}
+
+          <!-- Focus stays mounted (just hidden) across tab switches so a running
+               timer pauses and resumes rather than being destroyed. -->
+          <div class:hidden={activeTab !== 'focus'}>
+            <Focus
+              {topics}
+              {focusSessions}
+              active={activeTab === 'focus'}
+              on:recorded={(e) => (focusSessions = e.detail)}
+              on:error={onError}
+            />
+          </div>
         </div>
     {/if}
     </div>

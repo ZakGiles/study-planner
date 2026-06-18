@@ -22,6 +22,10 @@ type Store struct {
 	db       *sql.DB
 	jsonPath string // legacy data.json, used for one-time import and kept as backup
 	topics   []*Topic
+	// focus is the completed-focus-block log. It lives outside the topic graph
+	// rewritten by save(): records are appended individually and never deleted
+	// by topic mutations (see the focus_sessions schema comment).
+	focus []*FocusSession
 }
 
 // schema is the database layout. There is deliberately no UNIQUE(topic_id, date)
@@ -54,7 +58,18 @@ CREATE TABLE IF NOT EXISTS topic_tags (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_topic ON sessions(topic_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_date  ON sessions(date);
-PRAGMA user_version = 1;
+-- focus_sessions deliberately has NO foreign key to topics: save() rewrites the
+-- whole topics table on every mutation, so a cascading FK would wipe focus
+-- history. topic_id is a plain string ("" = general focus); a deleted topic just
+-- leaves a dangling id the frontend renders as general.
+CREATE TABLE IF NOT EXISTS focus_sessions (
+  id           TEXT PRIMARY KEY,
+  topic_id     TEXT NOT NULL DEFAULT '',
+  duration_sec INTEGER NOT NULL,
+  completed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_focus_completed ON focus_sessions(completed_at);
+PRAGMA user_version = 2;
 `
 
 // NewStore creates a store backed by data.db inside the user's config directory
@@ -99,6 +114,10 @@ func openStore(dbPath string) (*Store, error) {
 		log.Printf("study-planner: legacy data.json import skipped: %v", err)
 	}
 	if err := s.load(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.loadFocusSessions(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -309,6 +328,47 @@ func (s *Store) save() (err error) {
 	}
 
 	return tx.Commit()
+}
+
+// loadFocusSessions reads the whole focus log into memory, newest last. Ordering
+// here is loose; the snapshot served to the frontend sorts as needed.
+func (s *Store) loadFocusSessions() error {
+	rows, err := s.db.Query(
+		`SELECT id, topic_id, duration_sec, completed_at FROM focus_sessions ORDER BY completed_at`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	focus := []*FocusSession{}
+	for rows.Next() {
+		fs := &FocusSession{}
+		var completedAt string
+		if err := rows.Scan(&fs.ID, &fs.TopicID, &fs.DurationSec, &completedAt); err != nil {
+			return err
+		}
+		if fs.CompletedAt, err = time.Parse(time.RFC3339Nano, completedAt); err != nil {
+			return fmt.Errorf("focus session %s: bad completed_at %q: %w", fs.ID, completedAt, err)
+		}
+		focus = append(focus, fs)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	s.focus = focus
+	return nil
+}
+
+// addFocusSession persists one completed focus block and appends it in memory.
+// It inserts a single row rather than going through save(), keeping the focus
+// log independent of the topic-graph rewrite. The caller must hold the lock.
+func (s *Store) addFocusSession(fs *FocusSession) error {
+	if _, err := s.db.Exec(
+		`INSERT INTO focus_sessions (id, topic_id, duration_sec, completed_at) VALUES (?, ?, ?, ?)`,
+		fs.ID, fs.TopicID, fs.DurationSec, fs.CompletedAt.Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	s.focus = append(s.focus, fs)
+	return nil
 }
 
 // find returns the topic with the given id, or nil.
