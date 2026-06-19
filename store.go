@@ -14,30 +14,44 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Store holds all topics in memory and persists them to a SQLite database.
-// The in-memory slice stays the authoritative working copy that app.go mutates;
-// save() rewrites the whole graph to SQLite in one transaction.
+// Store holds all tasks and subjects in memory and persists them to a SQLite
+// database. The in-memory slices stay the authoritative working copy that app.go
+// mutates; save() rewrites the whole graph to SQLite in one transaction.
 type Store struct {
 	mu       sync.Mutex
 	db       *sql.DB
 	jsonPath string // legacy data.json, used for one-time import and kept as backup
-	topics   []*Topic
-	// focus is the completed-focus-block log. It lives outside the topic graph
+	tasks    []*Task
+	subjects []*Subject
+	// focus is the completed-focus-block log. It lives outside the task graph
 	// rewritten by save(): records are appended individually and never deleted
-	// by topic mutations (see the focus_sessions schema comment).
+	// by task mutations (see the focus_sessions schema comment).
 	focus []*FocusSession
 }
 
-// schema is the database layout. There is deliberately no UNIQUE(topic_id, date)
-// on sessions: a done (historical) session and a pending session may share a day.
-// The "at most one pending session per (topic, date)" invariant is enforced in
-// app.go, not the database.
+// schemaVersion is the current PRAGMA user_version. v3 renamed topics→tasks
+// (and the topic_id columns→task_id) and introduced subjects.
+const schemaVersion = 3
+
+// schema is the current database layout, applied to fresh databases. Existing
+// databases are stepped up by migrate(). There is deliberately no
+// UNIQUE(task_id, date) on sessions: a done (historical) session and a pending
+// session may share a day. The "at most one pending session per (task, date)"
+// invariant is enforced in app.go, not the database.
 const schema = `
-CREATE TABLE IF NOT EXISTS topics (
+CREATE TABLE IF NOT EXISTS subjects (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  color       TEXT NOT NULL DEFAULT '',
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tasks (
   id          TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   color       TEXT NOT NULL DEFAULT '',
+  subject_id  TEXT NOT NULL DEFAULT '',
   archived    INTEGER NOT NULL DEFAULT 0,
   adaptive    INTEGER NOT NULL DEFAULT 0,
   sort_order  INTEGER NOT NULL DEFAULT 0,
@@ -45,32 +59,100 @@ CREATE TABLE IF NOT EXISTS topics (
 );
 CREATE TABLE IF NOT EXISTS sessions (
   id           TEXT PRIMARY KEY,
-  topic_id     TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+  task_id      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   date         TEXT NOT NULL,
   done         INTEGER NOT NULL DEFAULT 0,
   completed_at TEXT
 );
-CREATE TABLE IF NOT EXISTS topic_tags (
-  topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS task_tags (
+  task_id  TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   tag      TEXT NOT NULL,
   position INTEGER NOT NULL,
-  PRIMARY KEY (topic_id, tag)
+  PRIMARY KEY (task_id, tag)
 );
-CREATE INDEX IF NOT EXISTS idx_sessions_topic ON sessions(topic_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_date  ON sessions(date);
--- focus_sessions deliberately has NO foreign key to topics: save() rewrites the
--- whole topics table on every mutation, so a cascading FK would wipe focus
--- history. topic_id is a plain string ("" = general focus); a deleted topic just
+CREATE INDEX IF NOT EXISTS idx_sessions_task ON sessions(task_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(date);
+-- subject_id on tasks is a plain string ("" = ungrouped), NOT a foreign key:
+-- save() rewrites the whole tasks table on every mutation, so a cascading FK
+-- onto subjects would be fragile; deleting a subject ungroups its tasks in
+-- app.go instead.
+-- focus_sessions deliberately has NO foreign key to tasks: save() rewrites the
+-- whole tasks table on every mutation, so a cascading FK would wipe focus
+-- history. task_id is a plain string ("" = general focus); a deleted task just
 -- leaves a dangling id the frontend renders as general.
 CREATE TABLE IF NOT EXISTS focus_sessions (
   id           TEXT PRIMARY KEY,
-  topic_id     TEXT NOT NULL DEFAULT '',
+  task_id      TEXT NOT NULL DEFAULT '',
   duration_sec INTEGER NOT NULL,
   completed_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_focus_completed ON focus_sessions(completed_at);
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 `
+
+// migrateV2toV3 renames the v2 topic-centric layout to the v3 task/subject
+// layout: tables topics→tasks and topic_tags→task_tags, the topic_id columns on
+// sessions/task_tags/focus_sessions→task_id, plus a new subject_id column and
+// the subjects table. SQLite rewrites child-table foreign-key references when a
+// table is renamed, so sessions/task_tags keep pointing at tasks(id). Run inside
+// a transaction by migrate().
+const migrateV2toV3 = `
+ALTER TABLE topics RENAME TO tasks;
+ALTER TABLE tasks ADD COLUMN subject_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE topic_tags RENAME TO task_tags;
+ALTER TABLE task_tags RENAME COLUMN topic_id TO task_id;
+ALTER TABLE sessions RENAME COLUMN topic_id TO task_id;
+ALTER TABLE focus_sessions RENAME COLUMN topic_id TO task_id;
+DROP INDEX IF EXISTS idx_sessions_topic;
+CREATE INDEX IF NOT EXISTS idx_sessions_task ON sessions(task_id);
+CREATE TABLE IF NOT EXISTS subjects (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  color       TEXT NOT NULL DEFAULT '',
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL
+);
+PRAGMA user_version = 3;
+`
+
+// migrate brings the database up to schemaVersion. A brand-new, empty database
+// (user_version 0, no tables) gets the full current schema; a v2 database is
+// stepped to v3 in one transaction; an already-current database is left alone.
+func migrate(db *sql.DB) error {
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	switch {
+	case v >= schemaVersion:
+		return nil
+	case v == 0:
+		// Fresh database (or one created by this version): apply current schema.
+		_, err := db.Exec(schema)
+		return err
+	case v == 2:
+		return execTx(db, migrateV2toV3)
+	default:
+		return fmt.Errorf("unsupported database schema version %d", v)
+	}
+}
+
+// execTx runs a multi-statement SQL script in a single transaction.
+func execTx(db *sql.DB, script string) (err error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+	if _, err = tx.Exec(script); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
 // NewStore creates a store backed by data.db inside the user's config directory
 // (e.g. ~/Library/Application Support/study-planner on macOS), importing a legacy
@@ -100,14 +182,15 @@ func openStore(dbPath string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, err
 	}
 	s := &Store{
 		db:       db,
 		jsonPath: filepath.Join(filepath.Dir(dbPath), "data.json"),
-		topics:   []*Topic{},
+		tasks:    []*Task{},
+		subjects: []*Subject{},
 	}
 	if err := s.importLegacyJSON(); err != nil {
 		// Import is best-effort: a corrupt backup must not block startup.
@@ -132,30 +215,31 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// importLegacyJSON, on first run only (no topics yet), imports a legacy data.json
+// importLegacyJSON, on first run only (no tasks yet), imports a legacy data.json
 // into the database and leaves the JSON file in place as a backup.
 func (s *Store) importLegacyJSON() error {
 	var count int
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM topics").Scan(&count); err != nil {
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM tasks").Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
 		return nil // database already populated; nothing to import
 	}
-	topics, err := readLegacyJSON(s.jsonPath)
+	tasks, err := readLegacyJSON(s.jsonPath)
 	if err != nil {
 		return err
 	}
-	if topics == nil {
+	if tasks == nil {
 		return nil // no data.json present
 	}
-	s.topics = topics
+	s.tasks = tasks
 	return s.save()
 }
 
-// readLegacyJSON reads and normalizes topics from a legacy data.json. A missing
-// file returns (nil, nil); an empty file returns an empty slice.
-func readLegacyJSON(path string) ([]*Topic, error) {
+// readLegacyJSON reads and normalizes tasks from a legacy data.json. A missing
+// file returns (nil, nil); an empty file returns an empty slice. Legacy data
+// predates subjects, so imported tasks are ungrouped (SubjectID == "").
+func readLegacyJSON(path string) ([]*Task, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -164,41 +248,45 @@ func readLegacyJSON(path string) ([]*Topic, error) {
 		return nil, err
 	}
 	if len(data) == 0 {
-		return []*Topic{}, nil
+		return []*Task{}, nil
 	}
-	var topics []*Topic
-	if err := json.Unmarshal(data, &topics); err != nil {
+	var tasks []*Task
+	if err := json.Unmarshal(data, &tasks); err != nil {
 		return nil, err
 	}
-	if topics == nil {
-		topics = []*Topic{}
+	if tasks == nil {
+		tasks = []*Task{}
 	}
-	return topics, nil
+	return tasks, nil
 }
 
-// load reads all topics, sessions and tags from the database into memory.
+// load reads all subjects, tasks, sessions and tags from the database into memory.
 func (s *Store) load() error {
+	if err := s.loadSubjects(); err != nil {
+		return err
+	}
+
 	rows, err := s.db.Query(
-		`SELECT id, name, description, color, archived, adaptive, sort_order, created_at
-		 FROM topics ORDER BY sort_order, created_at`)
+		`SELECT id, name, description, color, subject_id, archived, adaptive, sort_order, created_at
+		 FROM tasks ORDER BY sort_order, created_at`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
-	var topics []*Topic
-	byID := make(map[string]*Topic)
+	var tasks []*Task
+	byID := make(map[string]*Task)
 	for rows.Next() {
-		t := &Topic{Tags: []string{}, Sessions: []*Session{}}
+		t := &Task{Tags: []string{}, Sessions: []*Session{}}
 		var createdAt string
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Color,
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Color, &t.SubjectID,
 			&t.Archived, &t.Adaptive, &t.Order, &createdAt); err != nil {
 			return err
 		}
 		if t.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt); err != nil {
-			return fmt.Errorf("topic %s: bad created_at %q: %w", t.ID, createdAt, err)
+			return fmt.Errorf("task %s: bad created_at %q: %w", t.ID, createdAt, err)
 		}
-		topics = append(topics, t)
+		tasks = append(tasks, t)
 		byID[t.ID] = t
 	}
 	if err := rows.Err(); err != nil {
@@ -212,46 +300,74 @@ func (s *Store) load() error {
 		return err
 	}
 
-	if topics == nil {
-		topics = []*Topic{}
+	if tasks == nil {
+		tasks = []*Task{}
 	}
-	normalizeOrder(topics)
-	s.topics = topics
+	normalizeOrder(tasks)
+	s.tasks = tasks
 	return nil
 }
 
-// loadTags attaches tags (in stored order) to the topics in byID.
-func (s *Store) loadTags(byID map[string]*Topic) error {
-	rows, err := s.db.Query(`SELECT topic_id, tag FROM topic_tags ORDER BY topic_id, position`)
+// loadSubjects reads all subjects into memory, ordered by sort_order.
+func (s *Store) loadSubjects() error {
+	rows, err := s.db.Query(
+		`SELECT id, name, color, sort_order, created_at FROM subjects ORDER BY sort_order, created_at`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	subjects := []*Subject{}
+	for rows.Next() {
+		sub := &Subject{}
+		var createdAt string
+		if err := rows.Scan(&sub.ID, &sub.Name, &sub.Color, &sub.Order, &createdAt); err != nil {
+			return err
+		}
+		if sub.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt); err != nil {
+			return fmt.Errorf("subject %s: bad created_at %q: %w", sub.ID, createdAt, err)
+		}
+		subjects = append(subjects, sub)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	normalizeSubjectOrder(subjects)
+	s.subjects = subjects
+	return nil
+}
+
+// loadTags attaches tags (in stored order) to the tasks in byID.
+func (s *Store) loadTags(byID map[string]*Task) error {
+	rows, err := s.db.Query(`SELECT task_id, tag FROM task_tags ORDER BY task_id, position`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var topicID, tag string
-		if err := rows.Scan(&topicID, &tag); err != nil {
+		var taskID, tag string
+		if err := rows.Scan(&taskID, &tag); err != nil {
 			return err
 		}
-		if t := byID[topicID]; t != nil {
+		if t := byID[taskID]; t != nil {
 			t.Tags = append(t.Tags, tag)
 		}
 	}
 	return rows.Err()
 }
 
-// loadSessions attaches sessions to the topics in byID. Ordering is irrelevant
+// loadSessions attaches sessions to the tasks in byID. Ordering is irrelevant
 // here because snapshot() re-sorts sessions by date before serving them.
-func (s *Store) loadSessions(byID map[string]*Topic) error {
-	rows, err := s.db.Query(`SELECT id, topic_id, date, done, completed_at FROM sessions`)
+func (s *Store) loadSessions(byID map[string]*Task) error {
+	rows, err := s.db.Query(`SELECT id, task_id, date, done, completed_at FROM sessions`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var topicID, completedAt string
+		var taskID, completedAt string
 		var nullCompleted sql.NullString
 		sess := &Session{}
-		if err := rows.Scan(&sess.ID, &topicID, &sess.Date, &sess.Done, &nullCompleted); err != nil {
+		if err := rows.Scan(&sess.ID, &taskID, &sess.Date, &sess.Done, &nullCompleted); err != nil {
 			return err
 		}
 		if nullCompleted.Valid {
@@ -262,16 +378,17 @@ func (s *Store) loadSessions(byID map[string]*Topic) error {
 			}
 			sess.CompletedAt = &ts
 		}
-		if t := byID[topicID]; t != nil {
+		if t := byID[taskID]; t != nil {
 			t.Sessions = append(t.Sessions, sess)
 		}
 	}
 	return rows.Err()
 }
 
-// save rewrites the entire in-memory graph to the database in one transaction.
-// Deleting all topics cascades to sessions and tags (foreign_keys=1), so the
-// re-insert below is a clean full replacement, matching the previous JSON save.
+// save rewrites the entire in-memory graph (subjects + tasks) to the database in
+// one transaction. Deleting all tasks cascades to sessions and tags
+// (foreign_keys=1), so the re-insert below is a clean full replacement, matching
+// the previous JSON save. Subjects are rewritten the same way.
 func (s *Store) save() (err error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -283,31 +400,47 @@ func (s *Store) save() (err error) {
 		}
 	}()
 
-	if _, err = tx.Exec(`DELETE FROM topics`); err != nil {
+	if _, err = tx.Exec(`DELETE FROM subjects`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM tasks`); err != nil {
 		return err
 	}
 
-	topicStmt, err := tx.Prepare(
-		`INSERT INTO topics (id, name, description, color, archived, adaptive, sort_order, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	subjStmt, err := tx.Prepare(
+		`INSERT INTO subjects (id, name, color, sort_order, created_at) VALUES (?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
-	defer topicStmt.Close()
-	tagStmt, err := tx.Prepare(`INSERT INTO topic_tags (topic_id, tag, position) VALUES (?, ?, ?)`)
+	defer subjStmt.Close()
+	for _, sub := range s.subjects {
+		if _, err = subjStmt.Exec(sub.ID, sub.Name, sub.Color, sub.Order,
+			sub.CreatedAt.Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+	}
+
+	taskStmt, err := tx.Prepare(
+		`INSERT INTO tasks (id, name, description, color, subject_id, archived, adaptive, sort_order, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer taskStmt.Close()
+	tagStmt, err := tx.Prepare(`INSERT INTO task_tags (task_id, tag, position) VALUES (?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer tagStmt.Close()
 	sessStmt, err := tx.Prepare(
-		`INSERT INTO sessions (id, topic_id, date, done, completed_at) VALUES (?, ?, ?, ?, ?)`)
+		`INSERT INTO sessions (id, task_id, date, done, completed_at) VALUES (?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer sessStmt.Close()
 
-	for _, t := range s.topics {
-		if _, err = topicStmt.Exec(t.ID, t.Name, t.Description, t.Color,
+	for _, t := range s.tasks {
+		if _, err = taskStmt.Exec(t.ID, t.Name, t.Description, t.Color, t.SubjectID,
 			t.Archived, t.Adaptive, t.Order, t.CreatedAt.Format(time.RFC3339Nano)); err != nil {
 			return err
 		}
@@ -334,7 +467,7 @@ func (s *Store) save() (err error) {
 // here is loose; the snapshot served to the frontend sorts as needed.
 func (s *Store) loadFocusSessions() error {
 	rows, err := s.db.Query(
-		`SELECT id, topic_id, duration_sec, completed_at FROM focus_sessions ORDER BY completed_at`)
+		`SELECT id, task_id, duration_sec, completed_at FROM focus_sessions ORDER BY completed_at`)
 	if err != nil {
 		return err
 	}
@@ -343,7 +476,7 @@ func (s *Store) loadFocusSessions() error {
 	for rows.Next() {
 		fs := &FocusSession{}
 		var completedAt string
-		if err := rows.Scan(&fs.ID, &fs.TopicID, &fs.DurationSec, &completedAt); err != nil {
+		if err := rows.Scan(&fs.ID, &fs.TaskID, &fs.DurationSec, &completedAt); err != nil {
 			return err
 		}
 		if fs.CompletedAt, err = time.Parse(time.RFC3339Nano, completedAt); err != nil {
@@ -360,22 +493,32 @@ func (s *Store) loadFocusSessions() error {
 
 // addFocusSession persists one completed focus block and appends it in memory.
 // It inserts a single row rather than going through save(), keeping the focus
-// log independent of the topic-graph rewrite. The caller must hold the lock.
+// log independent of the task-graph rewrite. The caller must hold the lock.
 func (s *Store) addFocusSession(fs *FocusSession) error {
 	if _, err := s.db.Exec(
-		`INSERT INTO focus_sessions (id, topic_id, duration_sec, completed_at) VALUES (?, ?, ?, ?)`,
-		fs.ID, fs.TopicID, fs.DurationSec, fs.CompletedAt.Format(time.RFC3339Nano)); err != nil {
+		`INSERT INTO focus_sessions (id, task_id, duration_sec, completed_at) VALUES (?, ?, ?, ?)`,
+		fs.ID, fs.TaskID, fs.DurationSec, fs.CompletedAt.Format(time.RFC3339Nano)); err != nil {
 		return err
 	}
 	s.focus = append(s.focus, fs)
 	return nil
 }
 
-// find returns the topic with the given id, or nil.
-func (s *Store) find(id string) *Topic {
-	for _, t := range s.topics {
+// findTask returns the task with the given id, or nil.
+func (s *Store) findTask(id string) *Task {
+	for _, t := range s.tasks {
 		if t.ID == id {
 			return t
+		}
+	}
+	return nil
+}
+
+// findSubject returns the subject with the given id, or nil.
+func (s *Store) findSubject(id string) *Subject {
+	for _, sub := range s.subjects {
+		if sub.ID == id {
+			return sub
 		}
 	}
 	return nil

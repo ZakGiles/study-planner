@@ -14,8 +14,17 @@ import (
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// State is the full, freshly-sorted application graph returned by every mutating
+// method so the frontend can replace its state in one go. Bundling subjects and
+// tasks together keeps them from drifting out of sync (e.g. deleting a subject
+// also ungroups its tasks). The focus log is served separately.
+type State struct {
+	Subjects []*Subject `json:"subjects"`
+	Tasks    []*Task    `json:"tasks"`
+}
+
 // App is the Wails-bound application. Every mutating method returns the full,
-// freshly-sorted list of topics so the frontend can replace its state in one go.
+// freshly-sorted State so the frontend can replace its state in one go.
 type App struct {
 	ctx     context.Context
 	store   *Store
@@ -79,7 +88,7 @@ func (a *App) notifyDueToday() {
 	a.store.mu.Lock()
 	today := a.now().Format(dateLayout)
 	due, overdue := 0, 0
-	for _, t := range a.store.topics {
+	for _, t := range a.store.tasks {
 		if t.Archived {
 			continue
 		}
@@ -147,18 +156,18 @@ func (a *App) ready() error {
 	return nil
 }
 
-// snapshot returns a sorted, deep-copied view of all topics. The caller must
-// hold the lock. Copying matters: Wails serializes the returned value after
-// the lock is released, so handing out interior pointers would race with the
-// next mutation.
-func (a *App) snapshot() []*Topic {
-	topics := a.store.topics
-	for _, t := range topics {
+// snapshot returns a sorted, deep-copied view of the whole graph (subjects +
+// tasks). The caller must hold the lock. Copying matters: Wails serializes the
+// returned value after the lock is released, so handing out interior pointers
+// would race with the next mutation.
+func (a *App) snapshot() *State {
+	tasks := a.store.tasks
+	for _, t := range tasks {
 		sortSessions(t.Sessions)
 	}
-	sortTopics(topics)
-	out := make([]*Topic, len(topics))
-	for i, t := range topics {
+	sortTasks(tasks)
+	outTasks := make([]*Task, len(tasks))
+	for i, t := range tasks {
 		c := *t
 		c.Tags = make([]string, len(t.Tags))
 		copy(c.Tags, t.Tags)
@@ -167,14 +176,22 @@ func (a *App) snapshot() []*Topic {
 			sc := *s
 			c.Sessions[j] = &sc
 		}
-		out[i] = &c
+		outTasks[i] = &c
 	}
-	return out
+
+	sortSubjects(a.store.subjects)
+	outSubjects := make([]*Subject, len(a.store.subjects))
+	for i, sub := range a.store.subjects {
+		c := *sub
+		outSubjects[i] = &c
+	}
+
+	return &State{Subjects: outSubjects, Tasks: outTasks}
 }
 
 // mutate runs fn under the store lock, persists, and returns the new
 // snapshot. fn returning an error skips the save.
-func (a *App) mutate(fn func() error) ([]*Topic, error) {
+func (a *App) mutate(fn func() error) (*State, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
 	}
@@ -189,19 +206,19 @@ func (a *App) mutate(fn func() error) ([]*Topic, error) {
 	return a.snapshot(), nil
 }
 
-// mutateTopic locates a topic and applies fn to it.
-func (a *App) mutateTopic(id string, fn func(*Topic) error) ([]*Topic, error) {
+// mutateTask locates a task and applies fn to it.
+func (a *App) mutateTask(id string, fn func(*Task) error) (*State, error) {
 	return a.mutate(func() error {
-		t := a.store.find(id)
+		t := a.store.findTask(id)
 		if t == nil {
-			return errors.New("topic not found")
+			return errors.New("task not found")
 		}
 		return fn(t)
 	})
 }
 
-// GetTopics returns all topics with their sessions.
-func (a *App) GetTopics() ([]*Topic, error) {
+// GetState returns the whole graph: all subjects and all tasks with their sessions.
+func (a *App) GetState() (*State, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
 	}
@@ -210,20 +227,25 @@ func (a *App) GetTopics() ([]*Topic, error) {
 	return a.snapshot(), nil
 }
 
-// AddTopic creates a new topic. The name is required; the description is optional.
-func (a *App) AddTopic(name, description string) ([]*Topic, error) {
+// AddTask creates a new task. The name is required; the description is optional.
+// subjectID assigns it to a subject ("" = ungrouped); a non-empty id must exist.
+func (a *App) AddTask(name, description, subjectID string) (*State, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, errors.New("topic name is required")
+		return nil, errors.New("task name is required")
 	}
 	return a.mutate(func() error {
-		a.store.topics = append(a.store.topics, &Topic{
+		if subjectID != "" && a.store.findSubject(subjectID) == nil {
+			return errors.New("subject not found")
+		}
+		a.store.tasks = append(a.store.tasks, &Task{
 			ID:          uuid.NewString(),
 			Name:        name,
 			Description: strings.TrimSpace(description),
-			Color:       pickColor(a.store.topics),
+			Color:       pickColor(taskColors(a.store.tasks)),
+			SubjectID:   subjectID,
 			Tags:        []string{},
-			Order:       len(a.store.topics),
+			Order:       len(a.store.tasks),
 			CreatedAt:   a.now(),
 			Sessions:    []*Session{},
 		})
@@ -231,13 +253,13 @@ func (a *App) AddTopic(name, description string) ([]*Topic, error) {
 	})
 }
 
-// UpdateTopic edits an existing topic's name, description and tags.
-func (a *App) UpdateTopic(id, name, description string, tags []string) ([]*Topic, error) {
+// UpdateTask edits an existing task's name, description and tags.
+func (a *App) UpdateTask(id, name, description string, tags []string) (*State, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, errors.New("topic name is required")
+		return nil, errors.New("task name is required")
 	}
-	return a.mutateTopic(id, func(t *Topic) error {
+	return a.mutateTask(id, func(t *Task) error {
 		t.Name = name
 		t.Description = strings.TrimSpace(description)
 		t.Tags = normalizeTags(tags)
@@ -245,39 +267,56 @@ func (a *App) UpdateTopic(id, name, description string, tags []string) ([]*Topic
 	})
 }
 
-// SetTopicColor sets a topic's palette colour. An empty string resets it to the
+// SetTaskColor sets a task's palette colour. An empty string resets it to the
 // default accent; any other value must be a known palette token.
-func (a *App) SetTopicColor(id, color string) ([]*Topic, error) {
+func (a *App) SetTaskColor(id, color string) (*State, error) {
 	if !validColor(color) {
 		return nil, errors.New("unknown colour")
 	}
-	return a.mutateTopic(id, func(t *Topic) error {
+	return a.mutateTask(id, func(t *Task) error {
 		t.Color = color
 		return nil
 	})
 }
 
-// SetTopicArchived archives or unarchives a topic.
-func (a *App) SetTopicArchived(id string, archived bool) ([]*Topic, error) {
-	return a.mutateTopic(id, func(t *Topic) error {
+// SetTaskArchived archives or unarchives a task.
+func (a *App) SetTaskArchived(id string, archived bool) (*State, error) {
+	return a.mutateTask(id, func(t *Task) error {
 		t.Archived = archived
 		return nil
 	})
 }
 
-// ReorderTopics applies a new manual order. orderedIDs lists topic ids in the
-// desired order; any topic not included keeps its relative order after them
-// (e.g. archived topics that are hidden from the reorderable list).
-func (a *App) ReorderTopics(orderedIDs []string) ([]*Topic, error) {
+// SetTaskSubject moves a task to a subject ("" = ungroup). A non-empty subjectID
+// must reference an existing subject.
+func (a *App) SetTaskSubject(taskID, subjectID string) (*State, error) {
+	return a.mutate(func() error {
+		t := a.store.findTask(taskID)
+		if t == nil {
+			return errors.New("task not found")
+		}
+		if subjectID != "" && a.store.findSubject(subjectID) == nil {
+			return errors.New("subject not found")
+		}
+		t.SubjectID = subjectID
+		return nil
+	})
+}
+
+// ReorderTasks applies a new manual order. orderedIDs lists task ids in the
+// desired order; any task not included keeps its relative order after them
+// (e.g. tasks in other subject groups, or archived tasks hidden from the
+// reorderable list).
+func (a *App) ReorderTasks(orderedIDs []string) (*State, error) {
 	return a.mutate(func() error {
 		pos := make(map[string]int, len(orderedIDs))
 		for i, id := range orderedIDs {
 			pos[id] = i
 		}
-		// Establish the current relative order first so unlisted topics keep it.
-		sortTopics(a.store.topics)
+		// Establish the current relative order first so unlisted tasks keep it.
+		sortTasks(a.store.tasks)
 		next := len(orderedIDs)
-		for _, t := range a.store.topics {
+		for _, t := range a.store.tasks {
 			if p, ok := pos[t.ID]; ok {
 				t.Order = p
 			} else {
@@ -285,44 +324,139 @@ func (a *App) ReorderTopics(orderedIDs []string) ([]*Topic, error) {
 				next++
 			}
 		}
-		normalizeOrder(a.store.topics)
+		normalizeOrder(a.store.tasks)
 		return nil
 	})
 }
 
-// DeleteTopic removes a topic and all of its sessions.
-func (a *App) DeleteTopic(id string) ([]*Topic, error) {
+// DeleteTask removes a task and all of its sessions.
+func (a *App) DeleteTask(id string) (*State, error) {
 	return a.mutate(func() error {
-		kept := slices.DeleteFunc(a.store.topics, func(t *Topic) bool { return t.ID == id })
-		if len(kept) == len(a.store.topics) {
-			return errors.New("topic not found")
+		kept := slices.DeleteFunc(a.store.tasks, func(t *Task) bool { return t.ID == id })
+		if len(kept) == len(a.store.tasks) {
+			return errors.New("task not found")
 		}
-		a.store.topics = kept
-		normalizeOrder(a.store.topics)
+		a.store.tasks = kept
+		normalizeOrder(a.store.tasks)
 		return nil
 	})
 }
 
-// AddSession adds a single, manually-chosen study date to a topic.
-func (a *App) AddSession(topicID, date string) ([]*Topic, error) {
+// AddSubject creates a new subject. The name is required.
+func (a *App) AddSubject(name string) (*State, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("subject name is required")
+	}
+	return a.mutate(func() error {
+		a.store.subjects = append(a.store.subjects, &Subject{
+			ID:        uuid.NewString(),
+			Name:      name,
+			Color:     pickColor(subjectColors(a.store.subjects)),
+			Order:     len(a.store.subjects),
+			CreatedAt: a.now(),
+		})
+		return nil
+	})
+}
+
+// mutateSubject locates a subject and applies fn to it.
+func (a *App) mutateSubject(id string, fn func(*Subject) error) (*State, error) {
+	return a.mutate(func() error {
+		sub := a.store.findSubject(id)
+		if sub == nil {
+			return errors.New("subject not found")
+		}
+		return fn(sub)
+	})
+}
+
+// UpdateSubject edits an existing subject's name.
+func (a *App) UpdateSubject(id, name string) (*State, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("subject name is required")
+	}
+	return a.mutateSubject(id, func(sub *Subject) error {
+		sub.Name = name
+		return nil
+	})
+}
+
+// SetSubjectColor sets a subject's palette colour. An empty string resets it to
+// the default accent; any other value must be a known palette token.
+func (a *App) SetSubjectColor(id, color string) (*State, error) {
+	if !validColor(color) {
+		return nil, errors.New("unknown colour")
+	}
+	return a.mutateSubject(id, func(sub *Subject) error {
+		sub.Color = color
+		return nil
+	})
+}
+
+// ReorderSubjects applies a new manual order to subjects. Any subject not listed
+// keeps its relative order after the listed ones — mirrors ReorderTasks.
+func (a *App) ReorderSubjects(orderedIDs []string) (*State, error) {
+	return a.mutate(func() error {
+		pos := make(map[string]int, len(orderedIDs))
+		for i, id := range orderedIDs {
+			pos[id] = i
+		}
+		sortSubjects(a.store.subjects)
+		next := len(orderedIDs)
+		for _, sub := range a.store.subjects {
+			if p, ok := pos[sub.ID]; ok {
+				sub.Order = p
+			} else {
+				sub.Order = next
+				next++
+			}
+		}
+		normalizeSubjectOrder(a.store.subjects)
+		return nil
+	})
+}
+
+// DeleteSubject removes a subject and ungroups (does not delete) every task that
+// belonged to it, so the tasks fall back to the "Ungrouped" section.
+func (a *App) DeleteSubject(id string) (*State, error) {
+	return a.mutate(func() error {
+		kept := slices.DeleteFunc(a.store.subjects, func(sub *Subject) bool { return sub.ID == id })
+		if len(kept) == len(a.store.subjects) {
+			return errors.New("subject not found")
+		}
+		a.store.subjects = kept
+		for _, t := range a.store.tasks {
+			if t.SubjectID == id {
+				t.SubjectID = ""
+			}
+		}
+		normalizeSubjectOrder(a.store.subjects)
+		return nil
+	})
+}
+
+// AddSession adds a single, manually-chosen study date to a task.
+func (a *App) AddSession(taskID, date string) (*State, error) {
 	date = strings.TrimSpace(date)
 	if _, err := time.Parse(dateLayout, date); err != nil {
 		return nil, errors.New("date must be in YYYY-MM-DD format")
 	}
-	return a.mutateTopic(topicID, func(t *Topic) error {
+	return a.mutateTask(taskID, func(t *Task) error {
 		t.addDates([]string{date})
 		return nil
 	})
 }
 
-// AddSpacedSessions generates a topic's spaced-repetition schedule from a
+// AddSpacedSessions generates a task's spaced-repetition schedule from a
 // start date and a set of day offsets. With replace=true any existing sessions
 // (including their done state) are cleared first, so the result is exactly the
 // new schedule; with replace=false the new dates are merged into the existing
-// ones (dates the topic already has are kept as-is, done state intact). The
+// ones (dates the task already has are kept as-is, done state intact). The
 // frontend asks the user which they want when sessions exist. If intervals is
 // empty the default schedule (0, 1, 3, 7, 14, 30 days) is used.
-func (a *App) AddSpacedSessions(topicID, startDate string, intervals []int, replace bool) ([]*Topic, error) {
+func (a *App) AddSpacedSessions(taskID, startDate string, intervals []int, replace bool) (*State, error) {
 	startDate = strings.TrimSpace(startDate)
 	start, err := time.Parse(dateLayout, startDate)
 	if err != nil {
@@ -331,7 +465,7 @@ func (a *App) AddSpacedSessions(topicID, startDate string, intervals []int, repl
 	if len(intervals) == 0 {
 		intervals = DefaultIntervals
 	}
-	return a.mutateTopic(topicID, func(t *Topic) error {
+	return a.mutateTask(taskID, func(t *Task) error {
 		if replace {
 			t.Sessions = []*Session{}
 		}
@@ -340,9 +474,9 @@ func (a *App) AddSpacedSessions(topicID, startDate string, intervals []int, repl
 	})
 }
 
-// DeleteSession removes a single study date from a topic.
-func (a *App) DeleteSession(topicID, sessionID string) ([]*Topic, error) {
-	return a.mutateTopic(topicID, func(t *Topic) error {
+// DeleteSession removes a single study date from a task.
+func (a *App) DeleteSession(taskID, sessionID string) (*State, error) {
+	return a.mutateTask(taskID, func(t *Task) error {
 		if !t.removeSession(sessionID) {
 			return errors.New("session not found")
 		}
@@ -352,8 +486,8 @@ func (a *App) DeleteSession(topicID, sessionID string) ([]*Topic, error) {
 
 // ToggleSession flips the done state of a study session, stamping (or
 // clearing) the completion time so stats can track when studying happened.
-func (a *App) ToggleSession(topicID, sessionID string) ([]*Topic, error) {
-	return a.mutateTopic(topicID, func(t *Topic) error {
+func (a *App) ToggleSession(taskID, sessionID string) (*State, error) {
+	return a.mutateTask(taskID, func(t *Task) error {
 		s := t.findSession(sessionID)
 		if s == nil {
 			return errors.New("session not found")
@@ -395,10 +529,10 @@ func (a *App) GetFocusSessions() ([]*FocusSession, error) {
 }
 
 // RecordFocusSession logs a completed focus block of durationSec seconds against
-// topicID ("" for general focus, otherwise an existing topic) and returns the
+// taskID ("" for general focus, otherwise an existing task) and returns the
 // full focus log so the frontend can replace its state in one go. Only the
 // frontend's completed blocks reach here — abandoned time is never recorded.
-func (a *App) RecordFocusSession(topicID string, durationSec int) ([]*FocusSession, error) {
+func (a *App) RecordFocusSession(taskID string, durationSec int) ([]*FocusSession, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
 	}
@@ -407,12 +541,12 @@ func (a *App) RecordFocusSession(topicID string, durationSec int) ([]*FocusSessi
 	}
 	a.store.mu.Lock()
 	defer a.store.mu.Unlock()
-	if topicID != "" && a.store.find(topicID) == nil {
-		return nil, errors.New("topic not found")
+	if taskID != "" && a.store.findTask(taskID) == nil {
+		return nil, errors.New("task not found")
 	}
 	if err := a.store.addFocusSession(&FocusSession{
 		ID:          uuid.NewString(),
-		TopicID:     topicID,
+		TaskID:      taskID,
 		DurationSec: durationSec,
 		CompletedAt: a.now(),
 	}); err != nil {
@@ -421,23 +555,23 @@ func (a *App) RecordFocusSession(topicID string, durationSec int) ([]*FocusSessi
 	return a.focusSnapshot(), nil
 }
 
-// SetTopicAdaptive enables or disables grade-based rescheduling for a topic.
-func (a *App) SetTopicAdaptive(id string, adaptive bool) ([]*Topic, error) {
-	return a.mutateTopic(id, func(t *Topic) error {
+// SetTaskAdaptive enables or disables grade-based rescheduling for a task.
+func (a *App) SetTaskAdaptive(id string, adaptive bool) (*State, error) {
+	return a.mutateTask(id, func(t *Task) error {
 		t.Adaptive = adaptive
 		return nil
 	})
 }
 
-// RescheduleSession moves a session to a new date. If the topic already has a
+// RescheduleSession moves a session to a new date. If the task already has a
 // session on that date the moved one is dropped instead of duplicating the day,
 // matching the one-session-per-day rule used everywhere else.
-func (a *App) RescheduleSession(topicID, sessionID, date string) ([]*Topic, error) {
+func (a *App) RescheduleSession(taskID, sessionID, date string) (*State, error) {
 	date = strings.TrimSpace(date)
 	if _, err := time.Parse(dateLayout, date); err != nil {
 		return nil, errors.New("date must be in YYYY-MM-DD format")
 	}
-	return a.mutateTopic(topicID, func(t *Topic) error {
+	return a.mutateTask(taskID, func(t *Task) error {
 		target := t.findSession(sessionID)
 		if target == nil {
 			return errors.New("session not found")
@@ -458,14 +592,14 @@ func (a *App) RescheduleSession(topicID, sessionID, date string) ([]*Topic, erro
 }
 
 // RescheduleOverdueSessions moves every overdue, not-done session of every
-// active topic to today — the agenda's one-click catch-up. A topic ends up with
+// active task to today — the agenda's one-click catch-up. A task ends up with
 // at most one pending session today; surplus overdue ones are removed as
 // covered. A done session already on today doesn't count as covering: the
 // overdue review still moves to today and coexists with it.
-func (a *App) RescheduleOverdueSessions() ([]*Topic, error) {
+func (a *App) RescheduleOverdueSessions() (*State, error) {
 	return a.mutate(func() error {
 		today := a.now().Format(dateLayout)
-		for _, t := range a.store.topics {
+		for _, t := range a.store.tasks {
 			if t.Archived {
 				continue
 			}
@@ -497,17 +631,17 @@ var gradeFactors = map[string]float64{
 }
 
 // GradeSession marks a session done with a recall grade and re-spaces the
-// topic's remaining schedule (SM-2 lite). Gaps from the graded session to each
+// task's remaining schedule (SM-2 lite). Gaps from the graded session to each
 // later not-done session are scaled by the grade's factor and re-anchored to
 // today, so overdue schedules also catch up. Sessions scheduled before the
 // graded one are left alone. Grading "again" with nothing left schedules one
 // review for tomorrow.
-func (a *App) GradeSession(topicID, sessionID, grade string) ([]*Topic, error) {
+func (a *App) GradeSession(taskID, sessionID, grade string) (*State, error) {
 	factor, ok := gradeFactors[grade]
 	if !ok {
 		return nil, errors.New("grade must be one of: again, hard, good, easy")
 	}
-	return a.mutateTopic(topicID, func(t *Topic) error {
+	return a.mutateTask(taskID, func(t *Task) error {
 		graded := t.findSession(sessionID)
 		if graded == nil {
 			return errors.New("session not found")

@@ -1,7 +1,7 @@
 import type { ModalAction } from './ConfirmModal.svelte';
 
-// Grade choices for adaptive topics, mirroring the backend's gradeFactors.
-// Shown wherever a session of an adaptive topic is checked off. Colours use the
+// Grade choices for adaptive tasks, mirroring the backend's gradeFactors.
+// Shown wherever a session of an adaptive task is checked off. Colours use the
 // theme CSS variables (not literal hexes) so the dots track the active theme.
 export const GRADE_ACTIONS: ModalAction[] = [
   { value: 'easy', label: 'Easy', color: 'var(--green)', detail: 'Effortless recall — remaining reviews stretch out (×1.4).' },

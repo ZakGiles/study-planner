@@ -10,24 +10,32 @@ export function AddSpacedSessions(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['AddSpacedSessions'](arg1, arg2, arg3, arg4);
 }
 
-export function AddTopic(arg1, arg2) {
-  return window['go']['main']['App']['AddTopic'](arg1, arg2);
+export function AddSubject(arg1) {
+  return window['go']['main']['App']['AddSubject'](arg1);
+}
+
+export function AddTask(arg1, arg2, arg3) {
+  return window['go']['main']['App']['AddTask'](arg1, arg2, arg3);
 }
 
 export function DeleteSession(arg1, arg2) {
   return window['go']['main']['App']['DeleteSession'](arg1, arg2);
 }
 
-export function DeleteTopic(arg1) {
-  return window['go']['main']['App']['DeleteTopic'](arg1);
+export function DeleteSubject(arg1) {
+  return window['go']['main']['App']['DeleteSubject'](arg1);
+}
+
+export function DeleteTask(arg1) {
+  return window['go']['main']['App']['DeleteTask'](arg1);
 }
 
 export function GetFocusSessions() {
   return window['go']['main']['App']['GetFocusSessions']();
 }
 
-export function GetTopics() {
-  return window['go']['main']['App']['GetTopics']();
+export function GetState() {
+  return window['go']['main']['App']['GetState']();
 }
 
 export function GradeSession(arg1, arg2, arg3) {
@@ -38,8 +46,12 @@ export function RecordFocusSession(arg1, arg2) {
   return window['go']['main']['App']['RecordFocusSession'](arg1, arg2);
 }
 
-export function ReorderTopics(arg1) {
-  return window['go']['main']['App']['ReorderTopics'](arg1);
+export function ReorderSubjects(arg1) {
+  return window['go']['main']['App']['ReorderSubjects'](arg1);
+}
+
+export function ReorderTasks(arg1) {
+  return window['go']['main']['App']['ReorderTasks'](arg1);
 }
 
 export function RescheduleOverdueSessions() {
@@ -50,22 +62,34 @@ export function RescheduleSession(arg1, arg2, arg3) {
   return window['go']['main']['App']['RescheduleSession'](arg1, arg2, arg3);
 }
 
-export function SetTopicAdaptive(arg1, arg2) {
-  return window['go']['main']['App']['SetTopicAdaptive'](arg1, arg2);
+export function SetSubjectColor(arg1, arg2) {
+  return window['go']['main']['App']['SetSubjectColor'](arg1, arg2);
 }
 
-export function SetTopicArchived(arg1, arg2) {
-  return window['go']['main']['App']['SetTopicArchived'](arg1, arg2);
+export function SetTaskAdaptive(arg1, arg2) {
+  return window['go']['main']['App']['SetTaskAdaptive'](arg1, arg2);
 }
 
-export function SetTopicColor(arg1, arg2) {
-  return window['go']['main']['App']['SetTopicColor'](arg1, arg2);
+export function SetTaskArchived(arg1, arg2) {
+  return window['go']['main']['App']['SetTaskArchived'](arg1, arg2);
+}
+
+export function SetTaskColor(arg1, arg2) {
+  return window['go']['main']['App']['SetTaskColor'](arg1, arg2);
+}
+
+export function SetTaskSubject(arg1, arg2) {
+  return window['go']['main']['App']['SetTaskSubject'](arg1, arg2);
 }
 
 export function ToggleSession(arg1, arg2) {
   return window['go']['main']['App']['ToggleSession'](arg1, arg2);
 }
 
-export function UpdateTopic(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['UpdateTopic'](arg1, arg2, arg3, arg4);
+export function UpdateSubject(arg1, arg2) {
+  return window['go']['main']['App']['UpdateSubject'](arg1, arg2);
+}
+
+export function UpdateTask(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateTask'](arg1, arg2, arg3, arg4);
 }

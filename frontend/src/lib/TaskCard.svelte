@@ -5,14 +5,15 @@
     AddSession,
     AddSpacedSessions,
     DeleteSession,
-    DeleteTopic,
+    DeleteTask,
     GradeSession,
     RescheduleSession,
     ToggleSession,
-    UpdateTopic,
-    SetTopicAdaptive,
-    SetTopicColor,
-    SetTopicArchived,
+    UpdateTask,
+    SetTaskAdaptive,
+    SetTaskColor,
+    SetTaskArchived,
+    SetTaskSubject,
   } from '../../wailsjs/go/main/App.js';
   import {
     formatDate,
@@ -27,19 +28,20 @@
   } from './dates';
   import { makeMutator } from './mutate';
   import { today } from './today';
-  import { TOPIC_COLORS, topicHex } from './colors';
+  import { TASK_COLORS, taskHex } from './colors';
   import ConfirmModal from './ConfirmModal.svelte';
   import type { ModalAction } from './ConfirmModal.svelte';
   import GradeModal from './GradeModal.svelte';
 
-  export let topic: main.Topic;
+  export let task: main.Task;
   export let allTags: string[] = [];
+  export let subjects: main.Subject[] = [];
   export let draggable = false;
-  // Cross-topic planned-session counts per date, for busy-day warnings.
+  // Cross-task planned-session counts per date, for busy-day warnings.
   export let sessionLoad: Record<string, number> = {};
 
   const dispatch = createEventDispatcher<{
-    changed: main.Topic[];
+    changed: main.State;
     error: string;
     arm: void;
     disarm: void;
@@ -49,17 +51,18 @@
   let busy = false;
   let showColors = false;
 
-  $: hex = topicHex(topic.color);
+  $: hex = taskHex(task.color);
 
   async function pickColor(token: string) {
     showColors = false;
-    await run(SetTopicColor(topic.id, token));
+    await run(SetTaskColor(task.id, token));
   }
 
-  // Editing the topic name/description.
+  // Editing the task name/description/subject/tags.
   let editing = false;
   let editName = '';
   let editDescription = '';
+  let editSubjectId = '';
   let editTags: string[] = [];
   let tagDraft = '';
 
@@ -82,12 +85,12 @@
   // Unique, sorted offsets — what actually gets added (dates are de-duplicated).
   $: uniqueOffsets = Array.from(new Set(offsets)).sort((a, b) => a - b);
 
-  // Load on each day from *other* topics: this topic's own sessions don't
+  // Load on each day from *other* tasks: this task's own sessions don't
   // count against its own regenerated schedule.
   $: otherLoad = (() => {
     const m: Record<string, number> = { ...sessionLoad };
-    if (!topic.archived) {
-      for (const s of topic.sessions) {
+    if (!task.archived) {
+      for (const s of task.sessions) {
         if (!s.done && m[s.date]) m[s.date] -= 1;
       }
     }
@@ -95,7 +98,7 @@
   })();
 
   // Days the schedule would land on that already carry 2+ sessions from other
-  // topics. rawBusyDays decides whether smoothing is worth offering; busyDays
+  // tasks. rawBusyDays decides whether smoothing is worth offering; busyDays
   // reflects what actually remains busy after smoothing, so the warning clears
   // when the shift resolves every conflict (and persists when it can't).
   let smooth = false;
@@ -106,28 +109,29 @@
   // already computed above instead of expanding them a second time.
   $: preview = smooth ? spacedPreview(spacedStart, effectiveOffsets) : unsmoothedDates;
   $: busyDays = preview.filter((d) => (otherLoad[d] ?? 0) >= 2);
-  $: doneCount = topic.sessions.filter((s) => s.done).length;
-  $: total = topic.sessions.length;
+  $: doneCount = task.sessions.filter((s) => s.done).length;
+  $: total = task.sessions.length;
   $: progress = total ? Math.round((doneCount / total) * 100) : 0;
 
   // Each session row with its time-relative status and label. `now` ($today) is
   // a recompute trigger: a card left on screen past midnight re-derives overdue/
   // today styling instead of keeping yesterday's.
-  $: sessionRows = topic.sessions.map((s) => {
+  $: sessionRows = task.sessions.map((s) => {
     void $today;
     return { s, status: sessionStatus(s.date, s.done), label: s.done ? 'done' : relativeLabel(s.date) };
   });
 
   const run = makeMutator({
-    topics: (t) => dispatch('changed', t),
+    state: (s) => dispatch('changed', s),
     error: (m) => dispatch('error', m),
     busy: (b) => (busy = b),
   });
 
   function startEdit() {
-    editName = topic.name;
-    editDescription = topic.description;
-    editTags = [...topic.tags];
+    editName = task.name;
+    editDescription = task.description;
+    editSubjectId = task.subjectId;
+    editTags = [...task.tags];
     tagDraft = '';
     editing = true;
   }
@@ -135,7 +139,12 @@
   async function saveEdit() {
     if (!editName.trim()) return;
     addTag();
-    if (await run(UpdateTopic(topic.id, editName, editDescription, editTags))) editing = false;
+    if (!(await run(UpdateTask(task.id, editName, editDescription, editTags)))) return;
+    // Subject assignment is a separate mutation; only fire it when it changed.
+    if (editSubjectId !== task.subjectId) {
+      if (!(await run(SetTaskSubject(task.id, editSubjectId)))) return;
+    }
+    editing = false;
   }
 
   function addTag() {
@@ -159,7 +168,7 @@
 
   async function addManual() {
     if (!manualDate) return;
-    await run(AddSession(topic.id, manualDate));
+    await run(AddSession(task.id, manualDate));
   }
 
   // Destructive actions go through an in-app modal. (window.confirm is a no-op
@@ -167,17 +176,17 @@
   // implement the JS dialog delegate, which Wails doesn't.)
   let confirmKind: 'generate' | 'delete' | null = null;
 
-  $: confirmTitle = confirmKind === 'delete' ? `Delete “${topic.name}”?` : 'Topic already has study dates';
+  $: confirmTitle = confirmKind === 'delete' ? `Delete “${task.name}”?` : 'Task already has study dates';
   $: confirmMessage =
     confirmKind === 'delete'
       ? total > 0
-        ? `This permanently removes the topic and its ${total} study date${plural(total)}.`
-        : 'This permanently removes the topic.'
-      : `“${topic.name}” has ${total} study date${plural(total)}. What should the new schedule do with ${total === 1 ? 'it' : 'them'}?`;
+        ? `This permanently removes the task and its ${total} study date${plural(total)}.`
+        : 'This permanently removes the task.'
+      : `“${task.name}” has ${total} study date${plural(total)}. What should the new schedule do with ${total === 1 ? 'it' : 'them'}?`;
   $: confirmActions =
     confirmKind === 'delete'
       ? ([
-          { value: 'delete', label: 'Delete topic', kind: 'danger' },
+          { value: 'delete', label: 'Delete task', kind: 'danger' },
           { value: 'cancel', label: 'Cancel', kind: 'ghost' },
         ] as ModalAction[])
       : ([
@@ -199,7 +208,7 @@
   function requestGenerate() {
     if (!spacedStart || effectiveOffsets.length === 0) return;
     if (total === 0) {
-      void run(AddSpacedSessions(topic.id, spacedStart, effectiveOffsets, true));
+      void run(AddSpacedSessions(task.id, spacedStart, effectiveOffsets, true));
       return;
     }
     confirmKind = 'generate';
@@ -210,18 +219,18 @@
     confirmKind = null;
     const choice = e.detail;
     if (kind === 'generate' && (choice === 'merge' || choice === 'replace')) {
-      void run(AddSpacedSessions(topic.id, spacedStart, effectiveOffsets, choice === 'replace'));
+      void run(AddSpacedSessions(task.id, spacedStart, effectiveOffsets, choice === 'replace'));
     } else if (kind === 'delete' && choice === 'delete') {
-      void run(DeleteTopic(topic.id));
+      void run(DeleteTask(task.id));
     }
   }
 
-  // Adaptive topics grade each completed review instead of a plain check-off;
+  // Adaptive tasks grade each completed review instead of a plain check-off;
   // the grade re-spaces the remaining schedule.
   let gradeSid: string | null = null;
 
   function sessionCheckClick(e: Event, s: main.Session) {
-    if (!topic.adaptive || s.done) return; // unchecking stays a plain toggle
+    if (!task.adaptive || s.done) return; // unchecking stays a plain toggle
     e.preventDefault();
     gradeSid = s.id;
   }
@@ -229,7 +238,7 @@
   function onGrade(e: CustomEvent<string>) {
     const sid = gradeSid;
     gradeSid = null;
-    if (sid) void run(GradeSession(topic.id, sid, e.detail));
+    if (sid) void run(GradeSession(task.id, sid, e.detail));
   }
 
   // Status → Tailwind utilities for a session row and its relative-time label.
@@ -246,15 +255,24 @@
 </script>
 
 <article
-  class="relative rounded-lg border border-line bg-surface px-[1.2rem] py-[1.1rem] text-left shadow-1 transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-2 {topic.archived ? 'opacity-60' : ''}"
-  style="--topic:{hex}"
+  class="relative rounded-lg border border-line bg-surface px-[1.2rem] py-[1.1rem] text-left shadow-1 transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-2 {task.archived ? 'opacity-60' : ''}"
+  style="--task:{hex}"
 >
-  <span class="absolute bottom-0 left-0 top-0 w-[3px] rounded-l-lg bg-[var(--topic)] opacity-90" aria-hidden="true"></span>
+  <span class="absolute bottom-0 left-0 top-0 w-[3px] rounded-l-lg bg-[var(--task)] opacity-90" aria-hidden="true"></span>
   <header class="flex items-start justify-between gap-[0.75rem]">
     {#if editing}
       <div class="flex w-full flex-col gap-[0.5rem]">
-        <input class="w-full" type="text" bind:value={editName} placeholder="Topic name" />
+        <input class="w-full" type="text" bind:value={editName} placeholder="Task name" />
         <textarea class="w-full" bind:value={editDescription} rows="2" placeholder="Description"></textarea>
+        <label class="flex flex-col gap-[0.25rem] text-[0.68rem] font-semibold uppercase tracking-[0.04em] text-fg-faint">
+          <span>Subject</span>
+          <select class="w-full" bind:value={editSubjectId}>
+            <option value="">No subject</option>
+            {#each subjects as s}
+              <option value={s.id}>{s.name}</option>
+            {/each}
+          </select>
+        </label>
         <div class="flex flex-col gap-[0.4rem]">
           {#if editTags.length}
             <div class="flex flex-wrap gap-[0.3rem]">
@@ -267,10 +285,10 @@
             type="text"
             bind:value={tagDraft}
             on:keydown={tagKeydown}
-            list="alltags-{topic.id}"
+            list="alltags-{task.id}"
             placeholder="Add tags — press Enter"
           />
-          <datalist id="alltags-{topic.id}">
+          <datalist id="alltags-{task.id}">
             {#each allTags as t}<option value={t}></option>{/each}
           </datalist>
         </div>
@@ -281,13 +299,13 @@
       </div>
     {:else}
       <div>
-        <h3 class="m-0 font-display text-[1.08rem] font-bold tracking-[-0.01em] text-fg-strong">{topic.name}</h3>
-        {#if topic.description}
-          <p class="mt-[0.3rem] whitespace-pre-wrap text-[0.875rem] leading-[1.45] text-fg-muted">{topic.description}</p>
+        <h3 class="m-0 font-display text-[1.08rem] font-bold tracking-[-0.01em] text-fg-strong">{task.name}</h3>
+        {#if task.description}
+          <p class="mt-[0.3rem] whitespace-pre-wrap text-[0.875rem] leading-[1.45] text-fg-muted">{task.description}</p>
         {/if}
-        {#if topic.tags.length}
+        {#if task.tags.length}
           <div class="mt-[0.5rem] flex flex-wrap gap-[0.3rem]">
-            {#each topic.tags as t}
+            {#each task.tags as t}
               <button class="cursor-pointer rounded-sm border border-line bg-surface-2 px-[0.45rem] py-[0.1rem] text-[0.7rem] font-semibold text-fg-muted transition-colors hover:border-accent-line hover:text-fg-strong" title="Filter by “{t}”" on:click={() => dispatch('filterTag', t)}>{t}</button>
             {/each}
           </div>
@@ -310,20 +328,20 @@
             </svg>
           </button>
         {/if}
-        <button class="icon-btn" title="Topic colour" on:click={() => (showColors = !showColors)} disabled={busy}><span class="block h-[14px] w-[14px] rounded-full bg-[var(--topic)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25)]"></span></button>
-        <button class="icon-btn" title={topic.archived ? 'Restore topic' : 'Archive topic'} on:click={() => run(SetTopicArchived(topic.id, !topic.archived))} disabled={busy}>{topic.archived ? '⤒' : '⤓'}</button>
-        <button class="icon-btn" title="Edit topic" on:click={startEdit} disabled={busy}>✎</button>
-        <button class="icon-btn" title="Delete topic" on:click={() => (confirmKind = 'delete')} disabled={busy}>✕</button>
+        <button class="icon-btn" title="Task colour" on:click={() => (showColors = !showColors)} disabled={busy}><span class="block h-[14px] w-[14px] rounded-full bg-[var(--task)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25)]"></span></button>
+        <button class="icon-btn" title={task.archived ? 'Restore task' : 'Archive task'} on:click={() => run(SetTaskArchived(task.id, !task.archived))} disabled={busy}>{task.archived ? '⤒' : '⤓'}</button>
+        <button class="icon-btn" title="Edit task" on:click={startEdit} disabled={busy}>✎</button>
+        <button class="icon-btn" title="Delete task" on:click={() => (confirmKind = 'delete')} disabled={busy}>✕</button>
       </div>
     {/if}
   </header>
 
   {#if showColors}
     <div class="mb-[0.4rem] mt-[0.2rem] flex flex-wrap gap-[0.4rem]">
-      {#each TOPIC_COLORS as c}
+      {#each TASK_COLORS as c}
         <button
-          class="h-5 w-5 cursor-pointer rounded-full border-none bg-[var(--topic)] p-0 transition-transform hover:scale-110 {topic.color === c.token ? 'shadow-[0_0_0_2px_var(--surface),0_0_0_4px_var(--topic)]' : ''}"
-          style="--topic:{c.hex}"
+          class="h-5 w-5 cursor-pointer rounded-full border-none bg-[var(--task)] p-0 transition-transform hover:scale-110 {task.color === c.token ? 'shadow-[0_0_0_2px_var(--surface),0_0_0_4px_var(--task)]' : ''}"
+          style="--task:{c.hex}"
           title={c.label}
           aria-label={c.label}
           on:click={() => pickColor(c.token)}
@@ -346,7 +364,7 @@
               type="checkbox"
               checked={s.done}
               on:click={(e) => sessionCheckClick(e, s)}
-              on:change={() => run(ToggleSession(topic.id, s.id))}
+              on:change={() => run(ToggleSession(task.id, s.id))}
               disabled={busy}
             />
             <span class="tnum text-[0.86rem] {s.done ? 'text-fg-muted line-through' : 'text-fg-strong'}">{formatDate(s.date)}</span>
@@ -356,11 +374,11 @@
             <button
               class="icon-btn small"
               title="Move to today"
-              on:click={() => run(RescheduleSession(topic.id, s.id, todayISO()))}
+              on:click={() => run(RescheduleSession(task.id, s.id, todayISO()))}
               disabled={busy}
             >↷</button>
           {/if}
-          <button class="icon-btn small" title="Remove date" on:click={() => run(DeleteSession(topic.id, s.id))} disabled={busy}>×</button>
+          <button class="icon-btn small" title="Remove date" on:click={() => run(DeleteSession(task.id, s.id))} disabled={busy}>×</button>
         </li>
       {/each}
     </ul>
@@ -374,9 +392,9 @@
       <label class="inline-flex cursor-pointer items-center gap-[0.35rem] text-[0.74rem] font-semibold text-fg-muted hover:text-fg" title="Grade each review (Again / Hard / Good / Easy) and let the schedule adapt">
         <input
           type="checkbox"
-          checked={topic.adaptive}
+          checked={task.adaptive}
           disabled={busy}
-          on:change={() => run(SetTopicAdaptive(topic.id, !topic.adaptive))}
+          on:change={() => run(SetTaskAdaptive(task.id, !task.adaptive))}
         />
         <span>Adaptive</span>
       </label>
@@ -391,10 +409,10 @@
         <input type="date" bind:value={manualDate} />
         <button class="btn primary" on:click={addManual} disabled={busy || !manualDate}>Add date</button>
       </div>
-      {#if manualDate && topic.sessions.some((s) => s.date === manualDate)}
-        <p class="muted mt-[0.6rem] text-[0.78rem]">Already scheduled on this day for this topic.</p>
+      {#if manualDate && task.sessions.some((s) => s.date === manualDate)}
+        <p class="muted mt-[0.6rem] text-[0.78rem]">Already scheduled on this day for this task.</p>
       {:else if manualDate && (otherLoad[manualDate] ?? 0) >= 2}
-        <p class="mt-[0.55rem] text-[0.76rem] leading-[1.45] text-amber">This day already has {otherLoad[manualDate]} sessions across topics.</p>
+        <p class="mt-[0.55rem] text-[0.76rem] leading-[1.45] text-amber">This day already has {otherLoad[manualDate]} sessions across tasks.</p>
       {/if}
     {:else}
       <div class="mt-[0.6rem] flex flex-wrap items-end gap-2">
@@ -446,9 +464,9 @@
             {#if smooth && busyDays.length === 0}
               Shifted off {rawBusyDays.length === 1 ? 'a busy day' : `${rawBusyDays.length} busy days`}. ✓
             {:else if busyDays.length === 1}
-              {formatDate(busyDays[0])} still has 2+ sessions across topics.
+              {formatDate(busyDays[0])} still has 2+ sessions across tasks.
             {:else}
-              {busyDays.length} of these days still have 2+ sessions across topics.
+              {busyDays.length} of these days still have 2+ sessions across tasks.
             {/if}
             <label class="ml-[0.45rem] inline-flex cursor-pointer items-center gap-[0.3rem] font-semibold text-fg hover:text-fg-strong">
               <input type="checkbox" bind:checked={smooth} />
@@ -472,6 +490,5 @@
   <ConfirmModal title={confirmTitle} message={confirmMessage} actions={confirmActions} on:choose={onConfirmChoose} />
 {/if}
 {#if gradeSid}
-  <GradeModal topicName={topic.name} on:grade={onGrade} on:cancel={() => (gradeSid = null)} />
+  <GradeModal taskName={task.name} on:grade={onGrade} on:cancel={() => (gradeSid = null)} />
 {/if}
-
