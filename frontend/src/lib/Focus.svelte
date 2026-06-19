@@ -4,13 +4,13 @@
   import { RecordFocusSession } from '../../wailsjs/go/main/App.js';
   import { today } from './today';
   import { toISO, plural } from './dates';
-  import { topicHex } from './colors';
+  import { taskHex } from './colors';
 
-  // Topics feed the dropdown and let us resolve a focus record's topic name and
+  // Tasks feed the dropdown and let us resolve a focus record's task name and
   // colour; focusSessions is the completed-block log, owned by App so the Stats
   // tab sees the same data. active is whether the Focus tab is currently shown —
   // the timer pauses while it is false and resumes on return.
-  export let topics: main.Topic[] = [];
+  export let tasks: main.Task[] = [];
   export let focusSessions: main.FocusSession[] = [];
   export let active = true;
 
@@ -27,7 +27,14 @@
   $: localStorage.setItem('focusMin', String(focusMin));
   $: localStorage.setItem('breakMin', String(breakMin));
 
-  let selectedTopicId = ''; // '' = general focus
+  // Two ways to run a focus block: a countdown timer (the default) or a count-up
+  // stopwatch. The choice is a local preference like the durations, and only
+  // affects the focus phase — breaks are always a countdown.
+  type Mode = 'timer' | 'stopwatch';
+  let mode: Mode = localStorage.getItem('focusMode') === 'stopwatch' ? 'stopwatch' : 'timer';
+  $: localStorage.setItem('focusMode', mode);
+
+  let selectedTaskId = ''; // '' = general focus (task the user is focusing on)
 
   // Alert sounds. Uploaded files are stored as Blobs in IndexedDB (no practical
   // size limit, unlike localStorage), and played from object URLs; with none set
@@ -220,6 +227,7 @@
                                    : clamp(breakMin, BREAK_MIN, BREAK_MAX)) * 60;
     blockLen = len;
     remaining = len;
+    elapsed = 0; // a fresh stopwatch run starts from zero
   }
 
   // Drift-free clock: while ticking we hold the wall-clock instant the block
@@ -227,19 +235,33 @@
   // interval lives only while the tab is active AND running, which makes leaving
   // the Focus tab a clean pause (remaining freezes) and returning a clean resume
   // (endTime is recomputed from the frozen remaining — no elapsed time is lost).
-  let endTime = 0;
+  let endTime = 0; // wall-clock instant a countdown block ends
+  let startTime = 0; // wall-clock instant the running stopwatch began (less prior elapsed)
+  let elapsed = 0; // seconds counted up so far (stopwatch focus only)
   let intervalId: ReturnType<typeof setInterval> | undefined;
+
+  // The focus phase counts up in stopwatch mode; everything else (timer focus,
+  // and every break) counts down.
+  $: countUp = mode === 'stopwatch' && phase === 'focus';
 
   $: syncInterval(active && running);
   function syncInterval(on: boolean) {
     clearInterval(intervalId);
     intervalId = undefined;
     if (!on) return;
-    endTime = Date.now() + remaining * 1000;
+    if (countUp) {
+      startTime = Date.now() - elapsed * 1000;
+    } else {
+      endTime = Date.now() + remaining * 1000;
+    }
     intervalId = setInterval(tick, 250);
   }
 
   function tick() {
+    if (countUp) {
+      elapsed = Math.max(0, Math.round((Date.now() - startTime) / 1000));
+      return; // a stopwatch has no end — it runs until you stop it
+    }
     const left = Math.max(0, Math.round((endTime - Date.now()) / 1000));
     remaining = left;
     if (left <= 0) completeBlock();
@@ -253,7 +275,7 @@
       const dur = blockLen;
       justFinishedFocus = true;
       try {
-        const list = await RecordFocusSession(selectedTopicId, dur);
+        const list = await RecordFocusSession(selectedTaskId, dur);
         dispatch('recorded', list);
       } catch (e) {
         dispatch('error', `Couldn't save that focus block: ${e}`);
@@ -303,7 +325,16 @@
     justFinishedFocus = false;
   }
 
-  $: progress = blockLen > 0 ? (blockLen - remaining) / blockLen : 0;
+  // What the big clock shows: time counted up (stopwatch focus) or time left.
+  $: displaySec = countUp ? elapsed : remaining;
+  // Icarus climbs with progress through the block. A timer's progress is linear
+  // to its end; a stopwatch has no end, so he follows a fixed asymptotic curve
+  // (1 - e^(-t/τ)) that always approaches the sun but never reaches it — the same
+  // climb shape no matter how long you run. τ sets how quickly he nears the top.
+  const STOPWATCH_TAU = 25 * 60; // seconds; ~63% of the way up at this mark
+  $: progress = countUp
+    ? 1 - Math.exp(-elapsed / STOPWATCH_TAU)
+    : (blockLen > 0 ? (blockLen - remaining) / blockLen : 0);
   // Icarus climbs with focus progress; during a break his wings have come off
   // and he has dropped to the ground, so his climb is 0.
   $: climb = phase === 'focus' ? progress : 0;
@@ -323,17 +354,45 @@
   $: wingX = phase === 'focus' ? 110 + sway : 110 + detachSway;
   $: wingY = phase === 'focus' ? icarusY : detachY;
 
-  $: primaryLabel = running ? 'Pause' : fresh ? (phase === 'focus' ? 'Start focus' : 'Start break') : 'Resume';
+  $: primaryLabel = countUp
+    ? (running ? 'Stop' : fresh ? 'Start focus' : 'Resume')
+    : (running ? 'Pause' : fresh ? (phase === 'focus' ? 'Start focus' : 'Start break') : 'Resume');
   function primaryAction() {
+    if (countUp && running) {
+      stopStopwatch(); // a running stopwatch's primary action is stop → break
+      return;
+    }
     running ? pause() : start();
   }
 
+  // Stop the stopwatch: bank the elapsed focus time as a completed session and
+  // drop straight into a break, mirroring how a timer block completes. A run of
+  // under a second records nothing (RecordFocusSession rejects zero durations).
+  async function stopStopwatch() {
+    detachClimb = climb; // capture the height before the reset zeroes progress
+    detachSway = sway;
+    running = false;
+    started = false;
+    const dur = elapsed;
+    if (dur >= 1) {
+      playSound('study');
+      justFinishedFocus = true;
+      try {
+        const list = await RecordFocusSession(selectedTaskId, dur);
+        dispatch('recorded', list);
+      } catch (e) {
+        dispatch('error', `Couldn't save that focus block: ${e}`);
+      }
+    }
+    phase = 'break'; // wings fall off and he drops from wherever he'd reached
+  }
+
   // ---- Stats derived from the focus log ----
-  $: topicById = new Map(topics.map((t) => [t.id, t]));
-  function topicMeta(id: string) {
+  $: taskById = new Map(tasks.map((t) => [t.id, t]));
+  function taskMeta(id: string) {
     if (id === '') return { name: 'General focus', color: '' };
-    const t = topicById.get(id);
-    return { name: t?.name ?? 'Deleted topic', color: t?.color ?? '' };
+    const t = taskById.get(id);
+    return { name: t?.name ?? 'Deleted task', color: t?.color ?? '' };
   }
 
   $: todaySec = focusSessions
@@ -343,11 +402,11 @@
   $: blockCount = focusSessions.length;
   $: todayCount = focusSessions.filter((f) => toISO(new Date(f.completedAt)) === $today).length;
 
-  $: perTopic = (() => {
+  $: perTask = (() => {
     const m = new Map<string, number>();
-    for (const f of focusSessions) m.set(f.topicId, (m.get(f.topicId) ?? 0) + f.durationSec);
+    for (const f of focusSessions) m.set(f.taskId, (m.get(f.taskId) ?? 0) + f.durationSec);
     return [...m.entries()]
-      .map(([id, sec]) => ({ id, sec, ...topicMeta(id) }))
+      .map(([id, sec]) => ({ id, sec, ...taskMeta(id) }))
       .sort((a, b) => b.sec - a.sec);
   })();
 
@@ -364,9 +423,9 @@
     return r ? `${h}h ${r}m` : `${h}h`;
   }
 
-  $: selectedDot = selectedTopicId ? topicHex(topicById.get(selectedTopicId)?.color) : 'var(--muted)';
-  $: activeTopics = topics.filter((t) => !t.archived);
-  $: lockInputs = started; // don't let topic/length change mid-block
+  $: selectedDot = selectedTaskId ? taskHex(taskById.get(selectedTaskId)?.color) : 'var(--muted)';
+  $: activeTasks = tasks.filter((t) => !t.archived);
+  $: lockInputs = started; // don't let task/length change mid-block
 </script>
 
 <section class="flex flex-col gap-5">
@@ -433,39 +492,58 @@
 
     <!-- Controls -->
     <div class="flex flex-col gap-4 rounded-lg border border-line bg-surface px-5 py-5 shadow-1">
+      <!-- Mode switch: a countdown timer (default) or a count-up stopwatch.
+           Locked mid-block so the running clock can't change under you. -->
+      <div class="flex gap-2">
+        <button
+          class="btn sm flex-1 {mode === 'timer' ? 'primary' : 'ghost'}"
+          on:click={() => (mode = 'timer')}
+          disabled={lockInputs}
+        >Timer</button>
+        <button
+          class="btn sm flex-1 {mode === 'stopwatch' ? 'primary' : 'ghost'}"
+          on:click={() => (mode = 'stopwatch')}
+          disabled={lockInputs}
+        >Stopwatch</button>
+      </div>
+
       <!-- Clock readout (kept out of the sky so it never covers Icarus). -->
       <div class="flex flex-col items-center gap-0.5 rounded-md border border-line bg-surface-2 py-3">
         <span class="text-[0.7rem] font-bold uppercase tracking-[0.18em] {phase === 'focus' ? 'text-accent-bright' : 'text-amber'}">
           {#if justFinishedFocus && fresh}Nice focus — take a break{:else}{phase === 'focus' ? 'Focus' : 'Break'}{/if}
         </span>
         <span class="tnum font-display text-[2.9rem] font-extrabold leading-none text-fg-strong tabular-nums">
-          {fmtClock(remaining)}
+          {fmtClock(displaySec)}
         </span>
       </div>
 
       <div>
-        <label class="mb-1 block text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-fg-muted" for="focus-topic">Focusing on</label>
+        <label class="mb-1 block text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-fg-muted" for="focus-task">Focusing on</label>
         <div class="flex items-center gap-2">
           <span class="h-[10px] w-[10px] shrink-0 rounded-full" style="background:{selectedDot}"></span>
-          <select id="focus-topic" class="w-full" bind:value={selectedTopicId} disabled={lockInputs}>
+          <select id="focus-task" class="w-full" bind:value={selectedTaskId} disabled={lockInputs}>
             <option value="">General focus</option>
-            {#each activeTopics as t (t.id)}
+            {#each activeTasks as t (t.id)}
               <option value={t.id}>{t.name}</option>
             {/each}
           </select>
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-3">
-        <div>
-          <label class="mb-1 block text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-fg-muted" for="focus-len">Focus (min)</label>
-          <input id="focus-len" type="number" min={FOCUS_MIN} max={FOCUS_MAX} bind:value={focusMin} disabled={lockInputs} />
+      <!-- Length inputs only matter for the timer; a stopwatch runs until you
+           stop it, so they're hidden in that mode. -->
+      {#if mode === 'timer'}
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="mb-1 block text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-fg-muted" for="focus-len">Focus (min)</label>
+            <input id="focus-len" type="number" min={FOCUS_MIN} max={FOCUS_MAX} bind:value={focusMin} disabled={lockInputs} />
+          </div>
+          <div>
+            <label class="mb-1 block text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-fg-muted" for="break-len">Break (min)</label>
+            <input id="break-len" type="number" min={BREAK_MIN} max={BREAK_MAX} bind:value={breakMin} disabled={lockInputs} />
+          </div>
         </div>
-        <div>
-          <label class="mb-1 block text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-fg-muted" for="break-len">Break (min)</label>
-          <input id="break-len" type="number" min={BREAK_MIN} max={BREAK_MAX} bind:value={breakMin} disabled={lockInputs} />
-        </div>
-      </div>
+      {/if}
 
       <div class="mt-1 flex flex-col gap-2">
         <button class="btn primary" on:click={primaryAction}>{primaryLabel}</button>
@@ -473,10 +551,10 @@
           {#if started}
             <button class="btn ghost sm flex-1" on:click={reset}>Reset</button>
           {/if}
-          {#if phase === 'focus'}
-            <button class="btn ghost sm flex-1" on:click={skipToBreak}>Skip to break</button>
-          {:else}
+          {#if phase === 'break'}
             <button class="btn ghost sm flex-1" on:click={skipBreak}>Skip break</button>
+          {:else if mode === 'timer'}
+            <button class="btn ghost sm flex-1" on:click={skipToBreak}>Skip to break</button>
           {/if}
         </div>
       </div>
@@ -494,15 +572,15 @@
     </div>
   </div>
 
-  <!-- Per-topic breakdown -->
-  {#if perTopic.length}
+  <!-- Per-task breakdown -->
+  {#if perTask.length}
     <div class="rounded-lg border border-line bg-surface px-5 py-4 shadow-1">
-      <h3 class="m-0 mb-3 font-display text-[0.85rem] font-bold uppercase tracking-[0.04em] text-fg-faint">Focus by topic</h3>
+      <h3 class="m-0 mb-3 font-display text-[0.85rem] font-bold uppercase tracking-[0.04em] text-fg-faint">Focus by task</h3>
       <ul class="m-0 flex list-none flex-col gap-[0.45rem] p-0">
-        {#each perTopic as row (row.id)}
+        {#each perTask as row (row.id)}
           <li class="flex items-center gap-[0.6rem] text-[0.9rem]">
-            <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{row.color ? topicHex(row.color) : 'var(--muted)'}"></span>
-            <span class="text-fg {row.id === '' || !topicById.has(row.id) ? 'italic text-fg-muted' : ''}">{row.name}</span>
+            <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{row.color ? taskHex(row.color) : 'var(--muted)'}"></span>
+            <span class="text-fg {row.id === '' || !taskById.has(row.id) ? 'italic text-fg-muted' : ''}">{row.name}</span>
             <span class="tnum ml-auto text-fg-muted">{fmtDuration(row.sec)}</span>
           </li>
         {/each}

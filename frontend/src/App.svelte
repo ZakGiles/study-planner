@@ -2,15 +2,18 @@
   import { onMount } from 'svelte';
   import type { main } from '../wailsjs/go/models';
   import {
-    GetTopics,
-    AddTopic,
+    GetState,
+    AddTask,
+    AddSubject,
+    ReorderSubjects,
     ToggleSession,
-    ReorderTopics,
+    ReorderTasks,
     RescheduleOverdueSessions,
     GradeSession,
     GetFocusSessions,
   } from '../wailsjs/go/main/App.js';
-  import TopicCard from './lib/TopicCard.svelte';
+  import TaskCard from './lib/TaskCard.svelte';
+  import SubjectHeader from './lib/SubjectHeader.svelte';
   import Calendar from './lib/Calendar.svelte';
   import Stats from './lib/Stats.svelte';
   import Focus from './lib/Focus.svelte';
@@ -19,23 +22,28 @@
   import { makeMutator } from './lib/mutate';
   import { formatDate, relativeLabel, sessionStatus, plural } from './lib/dates';
   import { today } from './lib/today';
-  import { topicHex } from './lib/colors';
+  import { taskHex } from './lib/colors';
   import { dndzone } from 'svelte-dnd-action';
   import type { DndEvent } from 'svelte-dnd-action';
 
-  let topics: main.Topic[] = [];
-  // Focus records live alongside topics but on their own backend log; App owns
+  let tasks: main.Task[] = [];
+  let subjects: main.Subject[] = [];
+  // Focus records live alongside tasks but on their own backend log; App owns
   // them so the Focus tab (which records) and the Stats tab (which reads) share
   // one source of truth.
   let focusSessions: main.FocusSession[] = [];
-  let activeTab: 'topics' | 'agenda' | 'calendar' | 'stats' | 'focus' = 'topics';
+  let activeTab: 'tasks' | 'agenda' | 'calendar' | 'stats' | 'focus' = 'tasks';
   let loading = true;
   let errorMsg = '';
   let errorTimer: ReturnType<typeof setTimeout>;
 
   let newName = '';
   let newDescription = '';
+  let newSubjectId = ''; // subject to drop the new task into ("" = ungrouped)
   let adding = false;
+
+  let newSubjectName = '';
+  let addingSubject = false;
 
   // Theme is a pure UI preference, persisted locally rather than in the store.
   let theme: 'dark' | 'light' = localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
@@ -54,7 +62,7 @@
     requestAnimationFrame(() => root.classList.remove('no-transition'));
   }
 
-  // Keyboard shortcuts: n → new topic, / → search (when not already typing).
+  // Keyboard shortcuts: n → new task, / → search (when not already typing).
   let nameInput: HTMLInputElement;
   let searchInput: HTMLInputElement;
 
@@ -71,7 +79,7 @@
     // $openModalCount covers every modal in the app, including ones owned by
     // child components — shortcuts must not steal focus from behind an overlay.
     if (e.metaKey || e.ctrlKey || e.altKey || isTyping() || $openModalCount > 0) return;
-    if (activeTab !== 'topics') return;
+    if (activeTab !== 'tasks') return;
     if (e.key === 'n') {
       e.preventDefault();
       nameInput?.focus();
@@ -81,13 +89,19 @@
     }
   }
 
-  // apply awaits a backend call, swaps in the returned topic list and toasts
+  // apply awaits a backend call, swaps in the returned State and toasts
   // failures; resolves to whether it succeeded.
-  const apply = makeMutator({ topics: (t) => (topics = t), error: showError });
+  const apply = makeMutator({
+    state: (s) => {
+      tasks = s.tasks;
+      subjects = s.subjects;
+    },
+    error: showError,
+  });
 
   onMount(async () => {
-    await apply(GetTopics());
-    // Focus history isn't part of the topic graph, so it loads on its own; a
+    await apply(GetState());
+    // Focus history isn't part of the task graph, so it loads on its own; a
     // failure here shouldn't block the rest of the app from rendering.
     try {
       focusSessions = await GetFocusSessions();
@@ -103,44 +117,73 @@
     errorTimer = setTimeout(() => (errorMsg = ''), 5000);
   }
 
-  function onChanged(e: CustomEvent<main.Topic[]>) {
-    topics = e.detail;
+  function onChanged(e: CustomEvent<main.State>) {
+    tasks = e.detail.tasks;
+    subjects = e.detail.subjects;
   }
 
   function onError(e: CustomEvent<string>) {
     showError(e.detail);
   }
 
-  async function createTopic() {
+  async function createTask() {
     if (!newName.trim()) return;
     adding = true;
-    if (await apply(AddTopic(newName, newDescription))) {
+    if (await apply(AddTask(newName, newDescription, newSubjectId))) {
       newName = '';
       newDescription = '';
     }
     adding = false;
   }
 
+  async function createSubject() {
+    if (!newSubjectName.trim()) return;
+    addingSubject = true;
+    if (await apply(AddSubject(newSubjectName))) newSubjectName = '';
+    addingSubject = false;
+  }
+
+  // Move a subject one slot up or down by swapping it with its neighbour and
+  // resending the full order.
+  async function moveSubject(id: string, dir: -1 | 1) {
+    const order = subjects.map((s) => s.id);
+    const i = order.indexOf(id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    await apply(ReorderSubjects(order));
+  }
+
+  // Collapsed subject groups, persisted locally like the theme. Keyed by subject
+  // id (and '' for the Ungrouped group).
+  let collapsed = new Set<string>(JSON.parse(localStorage.getItem('collapsedSubjects') ?? '[]'));
+  function toggleCollapse(key: string) {
+    if (collapsed.has(key)) collapsed.delete(key);
+    else collapsed.add(key);
+    collapsed = collapsed;
+    localStorage.setItem('collapsedSubjects', JSON.stringify([...collapsed]));
+  }
+
   // Guard against double-clicks per session: a second toggle for the SAME
   // session while the first is in flight would flip it straight back. Tracked
   // per id so toggling one session doesn't freeze the rest of the agenda.
   let agendaBusy: Record<string, boolean> = {};
-  async function toggleFromAgenda(topicId: string, sessionId: string) {
+  async function toggleFromAgenda(taskId: string, sessionId: string) {
     if (agendaBusy[sessionId]) return;
     agendaBusy = { ...agendaBusy, [sessionId]: true };
-    await apply(ToggleSession(topicId, sessionId));
+    await apply(ToggleSession(taskId, sessionId));
     const { [sessionId]: _, ...rest } = agendaBusy;
     agendaBusy = rest;
   }
 
-  // Sessions of adaptive topics are graded instead of plainly checked off; the
+  // Sessions of adaptive tasks are graded instead of plainly checked off; the
   // grade re-spaces the remaining schedule.
-  let gradeTarget: { topicId: string; sessionId: string; topicName: string } | null = null;
+  let gradeTarget: { taskId: string; sessionId: string; taskName: string } | null = null;
 
   function agendaCheckClick(e: Event, item: AgendaItem) {
     if (!item.adaptive) return; // plain toggle proceeds via on:change
     e.preventDefault();
-    gradeTarget = { topicId: item.topicId, sessionId: item.sessionId, topicName: item.topicName };
+    gradeTarget = { taskId: item.taskId, sessionId: item.sessionId, taskName: item.taskName };
   }
 
   // No in-flight guard here: grading the same session twice is impossible (the
@@ -149,7 +192,7 @@
   async function onGrade(e: CustomEvent<string>) {
     const target = gradeTarget;
     gradeTarget = null;
-    if (target) await apply(GradeSession(target.topicId, target.sessionId, e.detail));
+    if (target) await apply(GradeSession(target.taskId, target.sessionId, e.detail));
   }
 
   // One-click catch-up: every overdue session moves to today.
@@ -161,7 +204,7 @@
     catchingUp = false;
   }
 
-  // Organisation: search text, selected tags and whether archived topics show.
+  // Organisation: search text, selected tags and whether archived tasks show.
   let search = '';
   let selectedTags: string[] = [];
   let showArchived = false;
@@ -172,12 +215,12 @@
       : [...selectedTags, t];
   }
 
-  $: allTags = Array.from(new Set(topics.flatMap((t) => t.tags))).sort((a, b) => a.localeCompare(b));
-  $: archivedCount = topics.filter((t) => t.archived).length;
+  $: allTags = Array.from(new Set(tasks.flatMap((t) => t.tags))).sort((a, b) => a.localeCompare(b));
+  $: archivedCount = tasks.filter((t) => t.archived).length;
 
-  // A topic matches when the search text hits its name/description/tags and it
+  // A task matches when the search text hits its name/description/tags and it
   // carries at least one selected tag (when any tags are selected).
-  $: matches = (t: main.Topic) => {
+  $: matches = (t: main.Task) => {
     const q = search.trim().toLowerCase();
     const okSearch =
       !q ||
@@ -188,18 +231,38 @@
     return okSearch && okTags;
   };
 
-  // Active (non-archived) topics that pass the filter feed every view; archived
-  // topics surface only in their own section.
-  $: visibleActive = topics.filter((t) => !t.archived && matches(t));
-  $: visibleArchived = topics.filter((t) => t.archived && matches(t));
+  // Active (non-archived) tasks that pass the filter feed every view; archived
+  // tasks surface only in their own section.
+  $: visibleActive = tasks.filter((t) => !t.archived && matches(t));
+  $: visibleArchived = tasks.filter((t) => t.archived && matches(t));
 
   // Drag-to-reorder operates on the unfiltered active list only.
   $: hasFilter = search.trim() !== '' || selectedTags.length > 0;
-  let dndItems: main.Topic[] = [];
-  $: dndItems = visibleActive;
 
-  // Dragging is armed only while a card's drag handle is held (and never while
-  // filtered), so it never hijacks text selection inside a card.
+  // Tasks grouped under their subject (in subject order), with an Ungrouped
+  // bucket last for tasks with no subject (or one that no longer exists). Held
+  // in a writable so svelte-dnd-action can mutate a group's list during a drag;
+  // the reactive re-derive resets it whenever the backing state changes.
+  type TaskGroup = { key: string; subject: main.Subject | null; tasks: main.Task[] };
+  function buildGroups(subs: main.Subject[], list: main.Task[]): TaskGroup[] {
+    const ids = new Set(subs.map((s) => s.id));
+    const grouped: Record<string, main.Task[]> = {};
+    const ungrouped: main.Task[] = [];
+    for (const t of list) {
+      if (t.subjectId && ids.has(t.subjectId)) (grouped[t.subjectId] ??= []).push(t);
+      else ungrouped.push(t);
+    }
+    const groups: TaskGroup[] = subs.map((s) => ({ key: s.id, subject: s, tasks: grouped[s.id] ?? [] }));
+    groups.push({ key: '', subject: null, tasks: ungrouped });
+    return groups;
+  }
+  let dndGroups: TaskGroup[] = [];
+  $: dndGroups = buildGroups(subjects, visibleActive);
+
+  // Each subject group is its own dnd zone with a unique type, so cards reorder
+  // within a group but never jump between groups by drag (use the card's subject
+  // selector for that). Dragging is armed only while a card's drag handle is held
+  // (and never while filtered), so it never hijacks text selection.
   let dragDisabled = true;
   function armDrag() {
     if (!hasFilter) dragDisabled = false;
@@ -208,37 +271,42 @@
     dragDisabled = true;
   }
 
-  function handleConsider(e: CustomEvent<DndEvent<main.Topic>>) {
-    dndItems = e.detail.items;
+  function handleConsider(gi: number, e: CustomEvent<DndEvent<main.Task>>) {
+    dndGroups[gi] = { ...dndGroups[gi], tasks: e.detail.items };
+    dndGroups = dndGroups;
   }
-  async function handleFinalize(e: CustomEvent<DndEvent<main.Topic>>) {
-    dndItems = e.detail.items;
+  async function handleFinalize(gi: number, e: CustomEvent<DndEvent<main.Task>>) {
+    dndGroups[gi] = { ...dndGroups[gi], tasks: e.detail.items };
+    dndGroups = dndGroups;
     dragDisabled = true;
-    if (!(await apply(ReorderTopics(dndItems.map((t) => t.id))))) {
-      dndItems = visibleActive; // revert the optimistic order
+    // Send the full active order (all groups, in display order) so global Order
+    // stays consistent with the grouping.
+    const ids = dndGroups.flatMap((g) => g.tasks.map((t) => t.id));
+    if (!(await apply(ReorderTasks(ids)))) {
+      dndGroups = buildGroups(subjects, visibleActive); // revert the optimistic order
     }
   }
 
   // Flattened, date-sorted list of incomplete sessions for the agenda view.
   type AgendaItem = {
-    topicId: string;
-    topicName: string;
+    taskId: string;
+    taskName: string;
     sessionId: string;
     date: string;
-    topicColor: string;
+    taskColor: string;
     adaptive: boolean;
   };
 
-  function agendaItems(from: main.Topic[], done: boolean): AgendaItem[] {
+  function agendaItems(from: main.Task[], done: boolean): AgendaItem[] {
     return from.flatMap((t) =>
       t.sessions
         .filter((s) => s.done === done)
         .map((s) => ({
-          topicId: t.id,
-          topicName: t.name,
+          taskId: t.id,
+          taskName: t.name,
           sessionId: s.id,
           date: s.date,
-          topicColor: t.color,
+          taskColor: t.color,
           adaptive: t.adaptive,
         }))
     );
@@ -250,11 +318,11 @@
   let showPast = false;
   $: pastAgenda = agendaItems(visibleActive, true).sort((a, b) => b.date.localeCompare(a.date));
 
-  // Cross-topic scheduling load (date → planned sessions), used by the cards to
+  // Cross-task scheduling load (date → planned sessions), used by the cards to
   // warn when a generated schedule would pile onto already-busy days.
   $: sessionLoad = (() => {
     const m: Record<string, number> = {};
-    for (const t of topics) {
+    for (const t of tasks) {
       if (t.archived) continue;
       for (const s of t.sessions) {
         if (!s.done) m[s.date] = (m[s.date] ?? 0) + 1;
@@ -303,7 +371,7 @@
 
   // Per-view header copy for the sticky content header.
   const TAB_META = {
-    topics: { title: 'Topics', sub: "Everything you're revising" },
+    tasks: { title: 'Tasks', sub: "Everything you're revising" },
     agenda: { title: 'Agenda', sub: "What's coming up next" },
     calendar: { title: 'Calendar', sub: 'Your month at a glance' },
     stats: { title: 'Stats', sub: 'Progress and streaks' },
@@ -312,7 +380,7 @@
   $: tabMeta = TAB_META[activeTab];
 
   const NAV = [
-    { id: 'topics', label: 'Topics' },
+    { id: 'tasks', label: 'Tasks' },
     { id: 'agenda', label: 'Agenda' },
     { id: 'calendar', label: 'Calendar' },
     { id: 'stats', label: 'Stats' },
@@ -352,7 +420,7 @@
             <span class="absolute left-[-0.85rem] top-2 bottom-2 w-[3px] rounded-r-[3px] bg-accent max-[720px]:left-[-0.5rem]" aria-hidden="true"></span>
           {/if}
           <span class="shrink-0 [&_svg]:h-[18px] [&_svg]:w-[18px] {activeTab === item.id ? 'text-accent-bright' : 'opacity-[0.85]'}">
-            {#if item.id === 'topics'}
+            {#if item.id === 'tasks'}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 3 21 7.5 12 12 3 7.5z" /><path d="M3 12 12 16.5 21 12" /><path d="M3 16.5 12 21l9-4.5" />
               </svg>
@@ -413,48 +481,72 @@
       <div class="py-12 text-fg-muted">Loading…</div>
     {:else}
         <div>
-          {#if activeTab === 'topics'}
+          {#if activeTab === 'tasks'}
             <section class="mb-[1.4rem] rounded-lg border border-line bg-surface px-[1.2rem] py-[1.1rem] shadow-1">
               <div class="mb-[0.8rem] flex items-baseline justify-between gap-2">
-                <h2 class="m-0 font-display text-base font-bold tracking-[-0.01em] text-fg-strong">New topic</h2>
+                <h2 class="m-0 font-display text-base font-bold tracking-[-0.01em] text-fg-strong">New task</h2>
                 <span class="text-[0.78rem] text-fg-faint">Add something to revise</span>
               </div>
-              <form class="flex flex-col gap-[0.6rem]" on:submit|preventDefault={createTopic}>
+              <form class="flex flex-col gap-[0.6rem]" on:submit|preventDefault={createTask}>
                 <input
                   type="text"
                   bind:this={nameInput}
                   bind:value={newName}
-                  placeholder="Topic name (e.g. Linear Algebra)"
+                  placeholder="Task name (e.g. Linear Algebra)"
                 />
                 <textarea
                   bind:value={newDescription}
                   rows="2"
                   placeholder="Description (optional) — what to cover, resources, goals…"
                 ></textarea>
-                <button class="btn primary self-start" type="submit" disabled={adding || !newName.trim()}>
-                  Add topic
-                </button>
+                <div class="flex flex-wrap items-center gap-[0.6rem]">
+                  {#if subjects.length}
+                    <select bind:value={newSubjectId} class="max-w-[14rem]" title="Add to subject">
+                      <option value="">No subject</option>
+                      {#each subjects as s}
+                        <option value={s.id}>{s.name}</option>
+                      {/each}
+                    </select>
+                  {/if}
+                  <button class="btn primary" type="submit" disabled={adding || !newName.trim()}>
+                    Add task
+                  </button>
+                </div>
               </form>
             </section>
 
-            {#if topics.length === 0}
+            {#if tasks.length === 0}
               <div class="px-4 py-12 text-center text-fg">
                 <div class="mb-[0.6rem] text-[1.6rem] text-accent-bright opacity-80" aria-hidden="true">✦</div>
-                <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">No topics yet</p>
+                <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">No tasks yet</p>
                 <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">
-                  Add your first topic above, then schedule study dates — manually or with a
+                  Add your first task above, then schedule study dates — manually or with a
                   spaced-repetition plan.
                 </p>
               </div>
             {:else}
               <div class="mb-[1.1rem] flex flex-col gap-[0.6rem]">
                 <div class="relative flex">
-                  <input class="w-full pr-8" type="text" bind:this={searchInput} bind:value={search} placeholder="Search topics… ( / )" />
+                  <input class="w-full pr-8" type="text" bind:this={searchInput} bind:value={search} placeholder="Search tasks… ( / )" />
                   {#if search}
                     <button class="absolute right-[0.35rem] top-1/2 -translate-y-1/2 cursor-pointer rounded-xs border-none bg-transparent px-[0.3rem] py-[0.15rem] text-[1.15rem] leading-none text-fg-muted hover:text-fg-strong" on:click={() => (search = '')} aria-label="Clear search">×</button>
                   {/if}
                 </div>
-                {#if allTags.length || archivedCount}
+                <div class="flex flex-wrap items-center gap-[0.4rem]">
+                  <form class="flex items-center gap-[0.4rem]" on:submit|preventDefault={createSubject}>
+                    <input class="w-[10rem] max-w-full" type="text" bind:value={newSubjectName} placeholder="New subject…" />
+                    <button class="btn ghost sm" type="submit" disabled={addingSubject || !newSubjectName.trim()}>Add subject</button>
+                  </form>
+                  {#if archivedCount}
+                    <button
+                      class="ml-auto cursor-pointer rounded-sm border px-[0.6rem] py-[0.22rem] text-[0.74rem] font-semibold transition-colors {showArchived ? 'border-accent-bright bg-[var(--accent-grad)] text-white' : 'border-line bg-surface-2 text-fg-muted hover:border-line-strong hover:text-fg'}"
+                      on:click={() => (showArchived = !showArchived)}
+                    >
+                      {showArchived ? 'Hide' : 'Show'} archived · {archivedCount}
+                    </button>
+                  {/if}
+                </div>
+                {#if allTags.length}
                   <div class="flex flex-wrap items-center gap-[0.4rem]">
                     {#each allTags as t}
                       <button
@@ -462,14 +554,6 @@
                         on:click={() => toggleTag(t)}
                       >{t}</button>
                     {/each}
-                    {#if archivedCount}
-                      <button
-                        class="ml-auto cursor-pointer rounded-sm border px-[0.6rem] py-[0.22rem] text-[0.74rem] font-semibold transition-colors {showArchived ? 'border-accent-bright bg-[var(--accent-grad)] text-white' : 'border-line bg-surface-2 text-fg-muted hover:border-line-strong hover:text-fg'}"
-                        on:click={() => (showArchived = !showArchived)}
-                      >
-                        {showArchived ? 'Hide' : 'Show'} archived · {archivedCount}
-                      </button>
-                    {/if}
                   </div>
                 {/if}
               </div>
@@ -477,7 +561,7 @@
               <div class="mb-[1.1rem] flex items-center gap-[1.25rem] px-[0.15rem]">
                 <div class="flex shrink-0 items-baseline gap-[0.35rem]">
                   <span class="tnum font-display text-[1.5rem] font-extrabold leading-none text-fg-strong">{visibleActive.length}</span>
-                  <span class="text-[0.82rem] text-fg-muted">topic{plural(visibleActive.length)}</span>
+                  <span class="text-[0.82rem] text-fg-muted">task{plural(visibleActive.length)}</span>
                 </div>
                 <div class="min-w-0 flex-1">
                   <div class="mb-[0.35rem] flex justify-between text-[0.74rem] text-fg-muted">
@@ -491,36 +575,123 @@
               </div>
 
               {#if visibleActive.length}
-                <div
-                  class="flex flex-col gap-4"
-                  use:dndzone={{ items: dndItems, flipDurationMs: 0, dragDisabled, dropTargetStyle: {} }}
-                  on:consider={handleConsider}
-                  on:finalize={handleFinalize}
-                >
-                  {#each dndItems as topic (topic.id)}
-                    <div>
-                      <TopicCard
-                        {topic}
-                        {allTags}
-                        {sessionLoad}
-                        draggable={!hasFilter}
-                        on:changed={onChanged}
-                        on:error={onError}
-                        on:arm={armDrag}
-                        on:disarm={disarmDrag}
-                        on:filterTag={(e) => toggleTag(e.detail)}
-                      />
-                    </div>
-                  {/each}
-                </div>
+                {#if subjects.length === 0}
+                  <!-- No subjects yet: a plain, ungrouped list (the original view). -->
+                  <div
+                    class="flex flex-col gap-4"
+                    use:dndzone={{ items: dndGroups[0].tasks, type: 'task-', flipDurationMs: 0, dragDisabled, dropTargetStyle: {} }}
+                    on:consider={(e) => handleConsider(0, e)}
+                    on:finalize={(e) => handleFinalize(0, e)}
+                  >
+                    {#each dndGroups[0].tasks as task (task.id)}
+                      <div>
+                        <TaskCard
+                          {task}
+                          {allTags}
+                          {subjects}
+                          {sessionLoad}
+                          draggable={!hasFilter}
+                          on:changed={onChanged}
+                          on:error={onError}
+                          on:arm={armDrag}
+                          on:disarm={disarmDrag}
+                          on:filterTag={(e) => toggleTag(e.detail)}
+                        />
+                      </div>
+                    {/each}
+                  </div>
+                {:else}
+                  <div class="flex flex-col gap-[1.1rem]">
+                    {#each dndGroups as group, gi (group.key)}
+                      {#if group.subject}
+                        <section>
+                          <SubjectHeader
+                            subject={group.subject}
+                            count={group.tasks.length}
+                            collapsed={collapsed.has(group.key)}
+                            canMoveUp={gi > 0}
+                            canMoveDown={gi < subjects.length - 1}
+                            on:toggle={() => toggleCollapse(group.key)}
+                            on:changed={onChanged}
+                            on:error={onError}
+                            on:moveUp={() => moveSubject(group.key, -1)}
+                            on:moveDown={() => moveSubject(group.key, 1)}
+                          />
+                          {#if !collapsed.has(group.key)}
+                            <div
+                              class="mt-3 flex flex-col gap-4"
+                              use:dndzone={{ items: group.tasks, type: 'task-' + group.key, flipDurationMs: 0, dragDisabled, dropTargetStyle: {} }}
+                              on:consider={(e) => handleConsider(gi, e)}
+                              on:finalize={(e) => handleFinalize(gi, e)}
+                            >
+                              {#each group.tasks as task (task.id)}
+                                <div>
+                                  <TaskCard
+                                    {task}
+                                    {allTags}
+                                    {subjects}
+                                    {sessionLoad}
+                                    draggable={!hasFilter}
+                                    on:changed={onChanged}
+                                    on:error={onError}
+                                    on:arm={armDrag}
+                                    on:disarm={disarmDrag}
+                                    on:filterTag={(e) => toggleTag(e.detail)}
+                                  />
+                                </div>
+                              {/each}
+                            </div>
+                            {#if group.tasks.length === 0}
+                              <p class="muted mt-3 pl-[0.6rem] text-[0.82rem]">No tasks in this subject yet — assign one from its card, or add a new task above.</p>
+                            {/if}
+                          {/if}
+                        </section>
+                      {:else if group.tasks.length}
+                        <!-- Ungrouped bucket, shown only when it holds tasks. -->
+                        <section>
+                          <button class="flex w-full cursor-pointer items-center gap-[0.55rem] rounded-md border border-line bg-surface-2 py-[0.5rem] pl-[0.6rem] pr-[0.5rem] text-left" on:click={() => toggleCollapse('')} title={collapsed.has('') ? 'Expand' : 'Collapse'}>
+                            <span class="shrink-0 text-[0.7rem] text-fg-muted transition-transform {collapsed.has('') ? '' : 'rotate-90'}" aria-hidden="true">▶</span>
+                            <span class="flex-1 font-display text-[0.98rem] font-bold tracking-[-0.01em] text-fg-muted">Ungrouped</span>
+                            <span class="tnum shrink-0 text-[0.78rem] text-fg-muted">{group.tasks.length} task{plural(group.tasks.length)}</span>
+                          </button>
+                          {#if !collapsed.has('')}
+                            <div
+                              class="mt-3 flex flex-col gap-4"
+                              use:dndzone={{ items: group.tasks, type: 'task-', flipDurationMs: 0, dragDisabled, dropTargetStyle: {} }}
+                              on:consider={(e) => handleConsider(gi, e)}
+                              on:finalize={(e) => handleFinalize(gi, e)}
+                            >
+                              {#each group.tasks as task (task.id)}
+                                <div>
+                                  <TaskCard
+                                    {task}
+                                    {allTags}
+                                    {subjects}
+                                    {sessionLoad}
+                                    draggable={!hasFilter}
+                                    on:changed={onChanged}
+                                    on:error={onError}
+                                    on:arm={armDrag}
+                                    on:disarm={disarmDrag}
+                                    on:filterTag={(e) => toggleTag(e.detail)}
+                                  />
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
+                        </section>
+                      {/if}
+                    {/each}
+                  </div>
+                {/if}
               {:else}
                 <div class="px-4 py-12 text-center text-fg">
                   {#if hasFilter}
                     <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">No matches</p>
-                    <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">No active topics match your search or filters.</p>
+                    <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">No active tasks match your search or filters.</p>
                   {:else}
-                    <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">All topics archived</p>
-                    <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">Every topic is archived — use “Show archived” to see them.</p>
+                    <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">All tasks archived</p>
+                    <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">Every task is archived — use “Show archived” to see them.</p>
                   {/if}
                 </div>
               {/if}
@@ -529,10 +700,11 @@
                 <div class="mt-[1.6rem]">
                   <h2 class="m-0 mb-[0.7rem] font-display text-[0.85rem] font-bold uppercase tracking-[0.04em] text-fg-faint">Archived</h2>
                   <div class="flex flex-col gap-4">
-                    {#each visibleArchived as topic (topic.id)}
-                      <TopicCard
-                        {topic}
+                    {#each visibleArchived as task (task.id)}
+                      <TaskCard
+                        {task}
                         {allTags}
+                        {subjects}
                         {sessionLoad}
                         on:changed={onChanged}
                         on:error={onError}
@@ -567,7 +739,7 @@
                 <div class="px-4 py-12 text-center text-fg">
                   <div class="mb-[0.6rem] text-[1.6rem] text-accent-bright opacity-80" aria-hidden="true">✓</div>
                   <p class="m-0 mb-[0.3rem] font-display text-[1.1rem] font-bold text-fg-strong">All caught up</p>
-                  <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">Nothing scheduled — add dates to your topics to fill your agenda.</p>
+                  <p class="muted mx-auto max-w-[44ch] text-[0.9rem] leading-[1.5]">Nothing scheduled — add dates to your tasks to fill your agenda.</p>
                 </div>
               {:else}
                 <ul class="m-0 flex list-none flex-col gap-[0.7rem] p-0">
@@ -586,11 +758,11 @@
                                 type="checkbox"
                                 disabled={agendaBusy[item.sessionId]}
                                 on:click={(e) => agendaCheckClick(e, item)}
-                                on:change={() => toggleFromAgenda(item.topicId, item.sessionId)}
+                                on:change={() => toggleFromAgenda(item.taskId, item.sessionId)}
                               />
-                              <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{topicHex(item.topicColor)}"></span>
-                              <span>{item.topicName}</span>
-                              {#if item.adaptive}<span class="text-[0.72rem] text-accent-bright opacity-80" title="Adaptive topic — reviews are graded">◎</span>{/if}
+                              <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{taskHex(item.taskColor)}"></span>
+                              <span>{item.taskName}</span>
+                              {#if item.adaptive}<span class="text-[0.72rem] text-accent-bright opacity-80" title="Adaptive task — reviews are graded">◎</span>{/if}
                             </label>
                           </li>
                         {/each}
@@ -616,15 +788,15 @@
                             <li class="chk-row">
                               <label class="flex w-full cursor-pointer items-center gap-[0.6rem] text-[0.9rem] text-fg transition-colors hover:text-fg-strong">
                                 <!-- Unchecking a done session is always a plain
-                                     toggle, even for adaptive topics. -->
+                                     toggle, even for adaptive tasks. -->
                                 <input
                                   type="checkbox"
                                   checked
                                   disabled={agendaBusy[item.sessionId]}
-                                  on:change={() => toggleFromAgenda(item.topicId, item.sessionId)}
+                                  on:change={() => toggleFromAgenda(item.taskId, item.sessionId)}
                                 />
-                                <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{topicHex(item.topicColor)}"></span>
-                                <span>{item.topicName}</span>
+                                <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{taskHex(item.taskColor)}"></span>
+                                <span>{item.taskName}</span>
                               </label>
                             </li>
                           {/each}
@@ -636,16 +808,16 @@
               {/if}
             </section>
           {:else if activeTab === 'calendar'}
-            <Calendar topics={visibleActive} on:changed={onChanged} on:error={onError} />
+            <Calendar tasks={visibleActive} {subjects} on:changed={onChanged} on:error={onError} />
           {:else if activeTab === 'stats'}
-            <Stats {topics} {focusSessions} />
+            <Stats {tasks} {subjects} {focusSessions} />
           {/if}
 
           <!-- Focus stays mounted (just hidden) across tab switches so a running
                timer pauses and resumes rather than being destroyed. -->
           <div class:hidden={activeTab !== 'focus'}>
             <Focus
-              {topics}
+              {tasks}
               {focusSessions}
               active={activeTab === 'focus'}
               on:recorded={(e) => (focusSessions = e.detail)}
@@ -660,7 +832,7 @@
 
 {#if gradeTarget}
   <GradeModal
-    topicName={gradeTarget.topicName}
+    taskName={gradeTarget.taskName}
     on:grade={onGrade}
     on:cancel={() => (gradeTarget = null)}
   />
@@ -672,4 +844,3 @@
     <span class="break-words leading-[1.4]">{errorMsg}</span>
   </div>
 {/if}
-

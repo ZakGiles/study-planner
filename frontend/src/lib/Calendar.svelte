@@ -4,15 +4,38 @@
   import { AddSession, GradeSession, ToggleSession } from '../../wailsjs/go/main/App.js';
   import { toISO, formatDate, relativeLabel, sessionStatus, plural } from './dates';
   import { today } from './today';
-  import { topicHex } from './colors';
+  import { taskHex } from './colors';
   import { makeMutator } from './mutate';
   import ConfirmModal from './ConfirmModal.svelte';
   import type { ModalAction } from './ConfirmModal.svelte';
   import GradeModal from './GradeModal.svelte';
 
-  export let topics: main.Topic[] = [];
+  export let tasks: main.Task[] = [];
+  export let subjects: main.Subject[] = [];
 
-  const dispatch = createEventDispatcher<{ changed: main.Topic[]; error: string }>();
+  const dispatch = createEventDispatcher<{ changed: main.State; error: string }>();
+
+  // Subject filter: '' = all subjects, a subject id, or the UNGROUPED sentinel.
+  // Everything the calendar shows (and the quick-add task picker) derives from
+  // viewTasks, so the month narrows to the chosen subject in one place.
+  const UNGROUPED = '\0ungrouped';
+  let subjectFilter = '';
+
+  $: subjectIds = new Set(subjects.map((s) => s.id));
+  const isUngrouped = (t: main.Task, ids: Set<string>) => !t.subjectId || !ids.has(t.subjectId);
+  $: hasUngrouped = tasks.some((t) => isUngrouped(t, subjectIds));
+
+  // Reset a stale filter (its subject was deleted, or the Ungrouped bucket emptied).
+  $: if (subjectFilter === UNGROUPED ? !hasUngrouped : subjectFilter && !subjectIds.has(subjectFilter)) {
+    subjectFilter = '';
+  }
+
+  $: viewTasks =
+    subjectFilter === ''
+      ? tasks
+      : subjectFilter === UNGROUPED
+        ? tasks.filter((t) => isUngrouped(t, subjectIds))
+        : tasks.filter((t) => t.subjectId === subjectFilter);
 
   // Monday-first week, matching the day-first date format used elsewhere.
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -28,8 +51,8 @@
   let busy = false;
 
   type DaySession = {
-    topicId: string;
-    topicName: string;
+    taskId: string;
+    taskName: string;
     sessionId: string;
     date: string;
     done: boolean;
@@ -40,12 +63,12 @@
   // Index every session by its date so each day cell is a cheap lookup.
   $: byDate = (() => {
     const m = new Map<string, DaySession[]>();
-    for (const t of topics) {
+    for (const t of viewTasks) {
       for (const s of t.sessions) {
         const list = m.get(s.date) ?? [];
         list.push({
-          topicId: t.id,
-          topicName: t.name,
+          taskId: t.id,
+          taskName: t.name,
           sessionId: s.id,
           date: s.date,
           done: s.done,
@@ -108,12 +131,12 @@
   }
 
   const run = makeMutator({
-    topics: (t) => dispatch('changed', t),
+    state: (s) => dispatch('changed', s),
     error: (m) => dispatch('error', m),
     busy: (b) => (busy = b),
   });
 
-  // Checking off a session of an adaptive topic asks for a grade instead.
+  // Checking off a session of an adaptive task asks for a grade instead.
   let gradeTarget: DaySession | null = null;
 
   function toggle(s: DaySession) {
@@ -121,7 +144,7 @@
       gradeTarget = s;
       return;
     }
-    void run(ToggleSession(s.topicId, s.sessionId));
+    void run(ToggleSession(s.taskId, s.sessionId));
   }
 
   // No `busy` pre-check: it is also set by toggles and quick-add, so guarding
@@ -131,18 +154,18 @@
   function onGrade(e: CustomEvent<string>) {
     const target = gradeTarget;
     gradeTarget = null;
-    if (target) void run(GradeSession(target.topicId, target.sessionId, e.detail));
+    if (target) void run(GradeSession(target.taskId, target.sessionId, e.detail));
   }
 
-  // Quick-add: the "+" on a day cell picks a topic for a session on that date.
+  // Quick-add: the "+" on a day cell picks a task for a session on that date.
   let pickDate: string | null = null;
 
-  $: topicActions = [
-    ...topics.map((t) => ({ value: t.id, label: t.name, color: topicHex(t.color) })),
+  $: taskActions = [
+    ...viewTasks.map((t) => ({ value: t.id, label: t.name, color: taskHex(t.color) })),
     { value: 'cancel', label: 'Cancel', kind: 'ghost' },
   ] as ModalAction[];
 
-  function onPickTopic(e: CustomEvent<string>) {
+  function onPickTask(e: CustomEvent<string>) {
     const date = pickDate;
     pickDate = null;
     if (date && e.detail !== 'cancel') void run(AddSession(e.detail, date));
@@ -169,6 +192,28 @@
     </div>
   </div>
 
+  {#if subjects.length}
+    <div class="mb-4 flex flex-wrap items-center gap-[0.4rem]">
+      <span class="mr-[0.2rem] text-[0.72rem] font-semibold uppercase tracking-[0.06em] text-fg-faint">Subject</span>
+      <button
+        class="cursor-pointer rounded-sm border px-[0.6rem] py-[0.22rem] text-[0.74rem] font-semibold transition-colors {subjectFilter === '' ? 'border-accent-bright bg-[var(--accent-grad)] text-white' : 'border-line bg-surface-2 text-fg-muted hover:border-line-strong hover:text-fg'}"
+        on:click={() => (subjectFilter = '')}
+      >All</button>
+      {#each subjects as s (s.id)}
+        <button
+          class="inline-flex cursor-pointer items-center gap-[0.35rem] rounded-sm border px-[0.6rem] py-[0.22rem] text-[0.74rem] font-semibold transition-colors {subjectFilter === s.id ? 'border-accent-bright bg-[var(--accent-grad)] text-white' : 'border-line bg-surface-2 text-fg-muted hover:border-line-strong hover:text-fg'}"
+          on:click={() => (subjectFilter = s.id)}
+        ><span class="h-[8px] w-[8px] rounded-full" style="background:{taskHex(s.color)}"></span>{s.name}</button>
+      {/each}
+      {#if hasUngrouped}
+        <button
+          class="cursor-pointer rounded-sm border px-[0.6rem] py-[0.22rem] text-[0.74rem] font-semibold transition-colors {subjectFilter === UNGROUPED ? 'border-accent-bright bg-[var(--accent-grad)] text-white' : 'border-line bg-surface-2 text-fg-muted hover:border-line-strong hover:text-fg'}"
+          on:click={() => (subjectFilter = UNGROUPED)}
+        >Ungrouped</button>
+      {/if}
+    </div>
+  {/if}
+
   <div class="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-line bg-line shadow-1">
     {#each WEEKDAYS as wd}
       <div class="bg-surface-2 py-2 text-center text-[0.68rem] font-bold uppercase tracking-[0.08em] text-fg-muted">{wd}</div>
@@ -177,7 +222,7 @@
       <div class="group flex min-h-[94px] flex-col gap-[0.25rem] px-[0.35rem] pb-[0.4rem] pt-[0.3rem] transition-colors hover:bg-surface-2 {cell.inMonth ? 'bg-surface' : 'bg-inset'}">
         <div class="flex items-start justify-between gap-[0.2rem]">
           <span class="tnum grid h-[1.55rem] min-w-[1.55rem] place-items-center rounded-sm text-[0.76rem] leading-[1.5] {cell.isToday ? 'bg-[var(--accent-grad)] font-bold text-white' : cell.inMonth ? 'text-fg' : 'text-fg opacity-40'}">{cell.day}</span>
-          {#if topics.length}
+          {#if viewTasks.length}
             <button
               class="h-[1.35rem] w-[1.35rem] cursor-pointer rounded-sm border border-transparent bg-transparent text-[0.95rem] leading-none text-fg-muted opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 hover:border-line hover:bg-surface-3 hover:text-fg-strong disabled:cursor-not-allowed"
               title="Add a session on {formatDate(cell.iso)}"
@@ -191,13 +236,13 @@
           <div class="flex min-w-0 flex-col gap-[0.2rem]">
             {#each cell.sessions as s (s.sessionId)}
               <button
-                class="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap rounded-xs border px-[0.35rem] py-[0.12rem] text-left text-[0.72rem] font-semibold transition-[transform,filter] [background:color-mix(in_srgb,var(--topic)_16%,transparent)] [border-color:color-mix(in_srgb,var(--topic)_45%,transparent)] [color:color-mix(in_srgb,var(--topic)_60%,var(--text-strong))] hover:translate-x-[1px] hover:brightness-[1.15] disabled:cursor-not-allowed {evClass(sessionStatus(s.date, s.done))}"
-                style="--topic:{topicHex(s.color)}"
-                title={`${s.topicName} — ${s.done ? 'done' : relativeLabel(s.date)} (click to toggle)`}
+                class="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap rounded-xs border px-[0.35rem] py-[0.12rem] text-left text-[0.72rem] font-semibold transition-[transform,filter] [background:color-mix(in_srgb,var(--task)_16%,transparent)] [border-color:color-mix(in_srgb,var(--task)_45%,transparent)] [color:color-mix(in_srgb,var(--task)_60%,var(--text-strong))] hover:translate-x-[1px] hover:brightness-[1.15] disabled:cursor-not-allowed {evClass(sessionStatus(s.date, s.done))}"
+                style="--task:{taskHex(s.color)}"
+                title={`${s.taskName} — ${s.done ? 'done' : relativeLabel(s.date)} (click to toggle)`}
                 on:click={() => toggle(s)}
                 disabled={busy}
               >
-                {s.topicName}
+                {s.taskName}
               </button>
             {/each}
           </div>
@@ -210,12 +255,11 @@
 {#if pickDate}
   <ConfirmModal
     title="Add session — {formatDate(pickDate)}"
-    message="Pick a topic to study that day."
-    actions={topicActions}
-    on:choose={onPickTopic}
+    message="Pick a task to study that day."
+    actions={taskActions}
+    on:choose={onPickTask}
   />
 {/if}
 {#if gradeTarget}
-  <GradeModal topicName={gradeTarget.topicName} on:grade={onGrade} on:cancel={() => (gradeTarget = null)} />
+  <GradeModal taskName={gradeTarget.taskName} on:grade={onGrade} on:cancel={() => (gradeTarget = null)} />
 {/if}
-

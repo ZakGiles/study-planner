@@ -1,7 +1,7 @@
-// Curated topic palette. Tokens mirror the backend's TopicColors list; an empty
-// or unknown token falls back to the default accent. Each colour is supplied as a
-// single hex and exposed to CSS via a --topic custom property, with soft fills
-// and borders derived through color-mix().
+// Curated palette for tasks and subjects. Tokens mirror the backend's TaskColors
+// list; an empty or unknown token falls back to the default accent. Each colour
+// is supplied as a single hex and exposed to CSS via a --task custom property,
+// with soft fills and borders derived through color-mix().
 
 export type ColorToken =
   | 'blue'
@@ -13,7 +13,7 @@ export type ColorToken =
   | 'orange'
   | 'slate';
 
-export const TOPIC_COLORS: { token: ColorToken; label: string; hex: string }[] = [
+export const TASK_COLORS: { token: ColorToken; label: string; hex: string }[] = [
   { token: 'blue', label: 'Blue', hex: '#36a6f2' },
   { token: 'violet', label: 'Violet', hex: '#a78bfa' },
   { token: 'emerald', label: 'Emerald', hex: '#34d399' },
@@ -26,9 +26,10 @@ export const TOPIC_COLORS: { token: ColorToken; label: string; hex: string }[] =
 
 const DEFAULT_HEX = '#36a6f2'; // matches --accent
 
-const HEX_BY_TOKEN = new Map<string, string>(TOPIC_COLORS.map((c) => [c.token, c.hex]));
+const HEX_BY_TOKEN = new Map<string, string>(TASK_COLORS.map((c) => [c.token, c.hex]));
 
-// topicHex resolves a stored token to a hex colour, falling back to the default.
-export function topicHex(token: string | undefined | null): string {
+// taskHex resolves a stored token to a hex colour, falling back to the default.
+// Used for both task and subject colours (they share one palette).
+export function taskHex(token: string | undefined | null): string {
   return (token && HEX_BY_TOKEN.get(token)) || DEFAULT_HEX;
 }

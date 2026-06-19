@@ -2,13 +2,48 @@
   import type { main } from '../../wailsjs/go/models';
   import { parseDate, toISO, formatDate, plural, MONTHS } from './dates';
   import { today } from './today';
-  import { topicHex } from './colors';
+  import { taskHex } from './colors';
+  import SubjectFilter, { UNGROUPED } from './SubjectFilter.svelte';
 
-  // All topics, archived included — completed history shouldn't vanish when a
-  // topic is shelved.
-  export let topics: main.Topic[] = [];
+  // All tasks, archived included — completed history shouldn't vanish when a
+  // task is shelved.
+  export let tasks: main.Task[] = [];
+  // Subjects, for the optional subject filter (repeated in the section headers).
+  export let subjects: main.Subject[] = [];
   // Completed focus blocks from the timer, owned by App.
   export let focusSessions: main.FocusSession[] = [];
+
+  // Subject filter: '' = all subjects, a subject id, or the UNGROUPED sentinel.
+  // Every stat below is computed from viewTasks/viewFocus, so the whole page
+  // narrows to the chosen subject in one place.
+  let subjectFilter = '';
+
+  $: subjectIds = new Set(subjects.map((s) => s.id));
+  const isUngrouped = (t: main.Task, ids: Set<string>) => !t.subjectId || !ids.has(t.subjectId);
+  $: hasUngrouped = tasks.some((t) => isUngrouped(t, subjectIds));
+
+  // Reset a stale filter (its subject was deleted, or the Ungrouped bucket emptied).
+  $: if (subjectFilter === UNGROUPED ? !hasUngrouped : subjectFilter && !subjectIds.has(subjectFilter)) {
+    subjectFilter = '';
+  }
+
+  $: viewTasks =
+    subjectFilter === ''
+      ? tasks
+      : subjectFilter === UNGROUPED
+        ? tasks.filter((t) => isUngrouped(t, subjectIds))
+        : tasks.filter((t) => t.subjectId === subjectFilter);
+
+  // Focus narrows the same way: a subject's blocks are those tied to its tasks;
+  // the Ungrouped bucket also collects general focus (no task). "All" keeps every
+  // block, including general focus.
+  $: viewTaskIds = new Set(viewTasks.map((t) => t.id));
+  $: viewFocus =
+    subjectFilter === ''
+      ? focusSessions
+      : subjectFilter === UNGROUPED
+        ? focusSessions.filter((f) => f.taskId === '' || viewTaskIds.has(f.taskId))
+        : focusSessions.filter((f) => viewTaskIds.has(f.taskId));
 
   const WEEKS = 26;
 
@@ -18,7 +53,7 @@
   $: doneByDay = (() => {
     const m = new Map<string, number>();
     const todayStr = $today;
-    for (const t of topics) {
+    for (const t of viewTasks) {
       for (const s of t.sessions) {
         if (!s.done) continue;
         const day = s.completedAt ? toISO(new Date(s.completedAt)) : s.date;
@@ -52,8 +87,8 @@
     return { current, longest };
   })();
 
-  $: totalDone = topics.reduce((n, t) => n + t.sessions.filter((s) => s.done).length, 0);
-  $: dueToday = topics
+  $: totalDone = viewTasks.reduce((n, t) => n + t.sessions.filter((s) => s.done).length, 0);
+  $: dueToday = viewTasks
     .filter((t) => !t.archived)
     .reduce((n, t) => n + t.sessions.filter((s) => !s.done && s.date === $today).length, 0);
 
@@ -87,12 +122,12 @@
     return first ? MONTHS[parseDate(first.iso).getMonth()] : '';
   });
 
-  $: byTopic = topics
+  $: byTask = viewTasks
     .map((t) => ({
       id: t.id,
       name: t.name,
       archived: t.archived,
-      hex: topicHex(t.color),
+      hex: taskHex(t.color),
       done: t.sessions.filter((s) => s.done).length,
       total: t.sessions.length,
     }))
@@ -116,7 +151,7 @@
   $: focusByDay = (() => {
     const m = new Map<string, number>();
     const todayStr = $today;
-    for (const f of focusSessions) {
+    for (const f of viewFocus) {
       const day = toISO(new Date(f.completedAt));
       if (day > todayStr) continue;
       m.set(day, (m.get(day) ?? 0) + f.durationSec);
@@ -124,7 +159,7 @@
     return m;
   })();
 
-  $: totalFocusSec = focusSessions.reduce((n, f) => n + f.durationSec, 0);
+  $: totalFocusSec = viewFocus.reduce((n, f) => n + f.durationSec, 0);
 
   // Reuse the heatmap's date layout (weeks), swapping in focus minutes. Levels
   // step at 25/50/90 minutes so a single Pomodoro already registers.
@@ -147,17 +182,17 @@
     return `${fmtDuration(sec)} focused — ${formatDate(iso)}`;
   }
 
-  $: focusByTopic = (() => {
+  $: focusByTask = (() => {
     const m = new Map<string, number>();
-    for (const f of focusSessions) m.set(f.topicId, (m.get(f.topicId) ?? 0) + f.durationSec);
+    for (const f of viewFocus) m.set(f.taskId, (m.get(f.taskId) ?? 0) + f.durationSec);
     return [...m.entries()]
       .map(([id, sec]) => {
-        const t = topics.find((x) => x.id === id);
+        const t = tasks.find((x) => x.id === id);
         return {
           id,
           sec,
-          name: id === '' ? 'General focus' : t?.name ?? 'Deleted topic',
-          hex: id === '' || !t ? 'var(--muted)' : topicHex(t.color),
+          name: id === '' ? 'General focus' : t?.name ?? 'Deleted task',
+          hex: id === '' || !t ? 'var(--muted)' : taskHex(t.color),
           known: id !== '' && !!t,
         };
       })
@@ -186,6 +221,10 @@
 </script>
 
 <section class="flex flex-col gap-[1.1rem]">
+  {#if subjects.length}
+    <SubjectFilter {subjects} {hasUngrouped} bind:value={subjectFilter} />
+  {/if}
+
   <div class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-[0.8rem]">
     <div class="flex flex-col gap-[0.2rem] rounded-lg border border-line bg-surface px-4 py-[0.9rem] shadow-1">
       <span class="tnum font-display text-[1.7rem] font-extrabold leading-none text-fg-strong">{streaks.current}</span>
@@ -209,6 +248,24 @@
     </div>
   </div>
 
+  {#if byTask.length}
+    <div class="rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
+      <div class="mb-[0.85rem] flex items-baseline justify-between gap-2">
+        <h2 class="m-0 font-display text-base font-bold text-fg-strong">By task</h2>
+      </div>
+      <ul class="m-0 flex list-none flex-col gap-[0.55rem] p-0">
+        {#each byTask as t (t.id)}
+          <li class="flex items-center gap-[0.6rem] {t.archived ? 'opacity-[0.55]' : ''}">
+            <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{t.hex}"></span>
+            <span class="min-w-0 flex-[0_1_auto] overflow-hidden text-ellipsis whitespace-nowrap text-[0.88rem] text-fg">{t.name}{#if t.archived}<span class="ml-[0.4rem] text-[0.64rem] uppercase tracking-[0.06em] text-fg-faint">archived</span>{/if}</span>
+            <span class="bar min-w-[60px]"><span class="fill" style="width:{(t.done / t.total) * 100}%; background:{t.hex}"></span></span>
+            <span class="tnum shrink-0 text-[0.76rem] text-fg-muted">{t.done}/{t.total}</span>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
+
   <div class="rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
     <div class="mb-[0.85rem] flex items-baseline justify-between gap-2">
       <h2 class="m-0 font-display text-base font-bold text-fg-strong">Last {WEEKS} weeks</h2>
@@ -218,6 +275,9 @@
         more
       </span>
     </div>
+    {#if subjects.length}
+      <div class="mb-[0.85rem]"><SubjectFilter {subjects} {hasUngrouped} bind:value={subjectFilter} /></div>
+    {/if}
     <div class="flex gap-[6px] overflow-x-auto pb-[0.2rem]">
       <div class="mt-[17px] grid grid-rows-[repeat(7,13px)] gap-[3px] text-[0.62rem] leading-[13px] text-fg-faint">
         <span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>
@@ -239,56 +299,41 @@
     </div>
   </div>
 
-  {#if byTopic.length}
-    <div class="rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
-      <div class="mb-[0.85rem] flex items-baseline justify-between gap-2">
-        <h2 class="m-0 font-display text-base font-bold text-fg-strong">By topic</h2>
-      </div>
-      <ul class="m-0 flex list-none flex-col gap-[0.55rem] p-0">
-        {#each byTopic as t (t.id)}
-          <li class="flex items-center gap-[0.6rem] {t.archived ? 'opacity-[0.55]' : ''}">
-            <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{t.hex}"></span>
-            <span class="min-w-0 flex-[0_1_auto] overflow-hidden text-ellipsis whitespace-nowrap text-[0.88rem] text-fg">{t.name}{#if t.archived}<span class="ml-[0.4rem] text-[0.64rem] uppercase tracking-[0.06em] text-fg-faint">archived</span>{/if}</span>
-            <span class="bar min-w-[60px]"><span class="fill" style="width:{(t.done / t.total) * 100}%; background:{t.hex}"></span></span>
-            <span class="tnum shrink-0 text-[0.76rem] text-fg-muted">{t.done}/{t.total}</span>
-          </li>
-        {/each}
-      </ul>
+  <div class="rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
+    <div class="mb-[0.85rem] flex items-baseline justify-between gap-2">
+      <h2 class="m-0 font-display text-base font-bold text-fg-strong">Focus time</h2>
+      <span class="inline-flex items-center gap-[3px] text-[0.7rem] text-fg-faint">
+        less
+        {#each [0, 1, 2, 3, 4] as l}<span class="h-[13px] w-[13px] rounded-[3px] {FOCUS_HEAT[l]}"></span>{/each}
+        more
+      </span>
     </div>
-  {/if}
-
-  {#if focusSessions.length}
-    <div class="rounded-lg border border-line bg-surface px-[1.2rem] pb-[1.1rem] pt-4 shadow-1">
-      <div class="mb-[0.85rem] flex items-baseline justify-between gap-2">
-        <h2 class="m-0 font-display text-base font-bold text-fg-strong">Focus time</h2>
-        <span class="inline-flex items-center gap-[3px] text-[0.7rem] text-fg-faint">
-          less
-          {#each [0, 1, 2, 3, 4] as l}<span class="h-[13px] w-[13px] rounded-[3px] {FOCUS_HEAT[l]}"></span>{/each}
-          more
-        </span>
+    {#if subjects.length}
+      <div class="mb-[0.85rem]"><SubjectFilter {subjects} {hasUngrouped} bind:value={subjectFilter} /></div>
+    {/if}
+    <div class="flex gap-[6px] overflow-x-auto pb-[0.2rem]">
+      <div class="mt-[17px] grid grid-rows-[repeat(7,13px)] gap-[3px] text-[0.62rem] leading-[13px] text-fg-faint">
+        <span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>
       </div>
-      <div class="flex gap-[6px] overflow-x-auto pb-[0.2rem]">
-        <div class="mt-[17px] grid grid-rows-[repeat(7,13px)] gap-[3px] text-[0.62rem] leading-[13px] text-fg-faint">
-          <span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>
+      <div class="min-w-0">
+        <div class="mb-[3px] grid h-[14px] grid-cols-[repeat(var(--weeks),13px)] gap-[3px] whitespace-nowrap text-[0.62rem] text-fg-faint" style="--weeks:{WEEKS}">
+          {#each monthLabels as m}<span>{m}</span>{/each}
         </div>
-        <div class="min-w-0">
-          <div class="mb-[3px] grid h-[14px] grid-cols-[repeat(var(--weeks),13px)] gap-[3px] whitespace-nowrap text-[0.62rem] text-fg-faint" style="--weeks:{WEEKS}">
-            {#each monthLabels as m}<span>{m}</span>{/each}
-          </div>
-          <div class="flex gap-[3px]">
-            {#each focusWeeks as col}
-              <div class="grid grid-rows-[repeat(7,13px)] gap-[3px]">
-                {#each col as c (c.iso)}
-                  <span class="h-[13px] w-[13px] rounded-[3px] {FOCUS_HEAT[c.level]} {c.future ? 'opacity-[0.35]' : ''}" title={focusCellTitle(c.iso, c.sec, c.future)}></span>
-                {/each}
-              </div>
-            {/each}
-          </div>
+        <div class="flex gap-[3px]">
+          {#each focusWeeks as col}
+            <div class="grid grid-rows-[repeat(7,13px)] gap-[3px]">
+              {#each col as c (c.iso)}
+                <span class="h-[13px] w-[13px] rounded-[3px] {FOCUS_HEAT[c.level]} {c.future ? 'opacity-[0.35]' : ''}" title={focusCellTitle(c.iso, c.sec, c.future)}></span>
+              {/each}
+            </div>
+          {/each}
         </div>
       </div>
+    </div>
 
+    {#if focusByTask.length}
       <ul class="m-0 mt-[1.1rem] flex list-none flex-col gap-[0.55rem] p-0">
-        {#each focusByTopic as row (row.id)}
+        {#each focusByTask as row (row.id)}
           <li class="flex items-center gap-[0.6rem]">
             <span class="h-[9px] w-[9px] shrink-0 rounded-full" style="background:{row.hex}"></span>
             <span class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.88rem] {row.known ? 'text-fg' : 'italic text-fg-muted'}">{row.name}</span>
@@ -296,7 +341,9 @@
           </li>
         {/each}
       </ul>
-    </div>
-  {/if}
+    {:else}
+      <p class="muted mt-[1.1rem] text-[0.84rem]">No focus time logged{subjectFilter === '' ? ' yet' : ' for this subject yet'} — start a block on the Focus tab.</p>
+    {/if}
+  </div>
 </section>
 
