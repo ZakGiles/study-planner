@@ -3,6 +3,7 @@
   import { parseDate, toISO, formatDate, plural, MONTHS } from './dates';
   import { today } from './today';
   import { taskHex } from './colors';
+  import { computeDoneByDay, computeStreaks, dueToday as countDueToday } from './stats';
   import SubjectFilter, { UNGROUPED } from './SubjectFilter.svelte';
 
   // All tasks, archived included — completed history shouldn't vanish when a
@@ -47,50 +48,12 @@
 
   const WEEKS = 26;
 
-  // completionDay maps a done session to the local day it was completed.
-  // Sessions checked off before completedAt existed fall back to their
-  // scheduled date; the few legacy ones dated in the future are skipped.
-  $: doneByDay = (() => {
-    const m = new Map<string, number>();
-    const todayStr = $today;
-    for (const t of viewTasks) {
-      for (const s of t.sessions) {
-        if (!s.done) continue;
-        const day = s.completedAt ? toISO(new Date(s.completedAt)) : s.date;
-        if (day > todayStr) continue;
-        m.set(day, (m.get(day) ?? 0) + 1);
-      }
-    }
-    return m;
-  })();
-
-  function dayNum(iso: string): number {
-    return Math.round(parseDate(iso).getTime() / 86_400_000);
-  }
-
-  // Streaks: consecutive days with at least one completion. The current streak
-  // survives until the end of today (an empty today doesn't break yesterday's).
-  $: streaks = (() => {
-    const days = [...doneByDay.keys()].map(dayNum).sort((a, b) => a - b);
-    let longest = 0;
-    let run = 0;
-    let prev = NaN;
-    for (const d of days) {
-      run = d === prev + 1 ? run + 1 : 1;
-      longest = Math.max(longest, run);
-      prev = d;
-    }
-    const todayNum = dayNum($today);
-    const have = new Set(days);
-    let current = 0;
-    for (let d = have.has(todayNum) ? todayNum : todayNum - 1; have.has(d); d--) current++;
-    return { current, longest };
-  })();
+  // doneByDay/streaks come from the shared stats module so Home and Stats agree.
+  $: doneByDay = computeDoneByDay(viewTasks, $today);
+  $: streaks = computeStreaks(doneByDay, $today);
 
   $: totalDone = viewTasks.reduce((n, t) => n + t.sessions.filter((s) => s.done).length, 0);
-  $: dueToday = viewTasks
-    .filter((t) => !t.archived)
-    .reduce((n, t) => n + t.sessions.filter((s) => !s.done && s.date === $today).length, 0);
+  $: dueToday = countDueToday(viewTasks, $today);
 
   type HeatCell = { iso: string; count: number; level: number; future: boolean };
 

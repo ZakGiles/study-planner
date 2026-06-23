@@ -297,3 +297,79 @@ func TestMigrateV2toV3(t *testing.T) {
 		t.Fatalf("subjects after migration = %+v, want none", s.subjects)
 	}
 }
+
+// TestSettingsPersistence covers the v4 key/value settings: a fresh store starts
+// at the default goal, and a set value survives a reopen.
+func TestSettingsPersistence(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "data.db")
+
+	s, err := openStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.settings.DailyGoalMinutes != defaultDailyGoalMinutes {
+		t.Fatalf("fresh daily goal = %d, want default %d", s.settings.DailyGoalMinutes, defaultDailyGoalMinutes)
+	}
+	if err := s.setDailyGoalMinutes(90); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	reopened, err := openStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if reopened.settings.DailyGoalMinutes != 90 {
+		t.Fatalf("reloaded daily goal = %d, want 90", reopened.settings.DailyGoalMinutes)
+	}
+}
+
+// TestMigrateV3toV4 builds a v3 database (a v2 stepped up to v3, so it has no
+// settings table) and asserts openStore adds the table, bumps the version, and
+// applies the default goal for the missing row.
+func TestMigrateV3toV4(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "data.db")
+
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(schemaV2); err != nil {
+		t.Fatal(err)
+	}
+	// Step to v3 only, leaving the database one version behind current.
+	if err := execTx(db, migrateV2toV3); err != nil {
+		t.Fatal(err)
+	}
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	if v != 3 {
+		t.Fatalf("hand-built database is v%d, want v3", v)
+	}
+	db.Close()
+
+	s, err := openStore(dbPath)
+	if err != nil {
+		t.Fatalf("openStore on a v3 database failed: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	if v != schemaVersion {
+		t.Fatalf("user_version = %d, want %d", v, schemaVersion)
+	}
+	if s.settings.DailyGoalMinutes != defaultDailyGoalMinutes {
+		t.Fatalf("migrated daily goal = %d, want default %d", s.settings.DailyGoalMinutes, defaultDailyGoalMinutes)
+	}
+	// The settings row can be written post-migration.
+	if err := s.setDailyGoalMinutes(45); err != nil {
+		t.Fatalf("setDailyGoalMinutes after migration: %v", err)
+	}
+}

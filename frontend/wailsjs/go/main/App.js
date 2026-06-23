@@ -62,6 +62,10 @@ export function RescheduleSession(arg1, arg2, arg3) {
   return window['go']['main']['App']['RescheduleSession'](arg1, arg2, arg3);
 }
 
+export function SetDailyGoalMinutes(arg1) {
+  return window['go']['main']['App']['SetDailyGoalMinutes'](arg1);
+}
+
 export function SetSubjectColor(arg1, arg2) {
   return window['go']['main']['App']['SetSubjectColor'](arg1, arg2);
 }

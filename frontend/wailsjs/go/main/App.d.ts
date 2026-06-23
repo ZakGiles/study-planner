@@ -32,6 +32,8 @@ export function RescheduleOverdueSessions():Promise<main.State>;
 
 export function RescheduleSession(arg1:string,arg2:string,arg3:string):Promise<main.State>;
 
+export function SetDailyGoalMinutes(arg1:number):Promise<main.State>;
+
 export function SetSubjectColor(arg1:string,arg2:string):Promise<main.State>;
 
 export function SetTaskAdaptive(arg1:string,arg2:boolean):Promise<main.State>;

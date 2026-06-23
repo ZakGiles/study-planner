@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -27,11 +28,15 @@ type Store struct {
 	// rewritten by save(): records are appended individually and never deleted
 	// by task mutations (see the focus_sessions schema comment).
 	focus []*FocusSession
+	// settings holds user preferences persisted in the key/value settings table,
+	// written with single-row upserts independent of save().
+	settings Settings
 }
 
 // schemaVersion is the current PRAGMA user_version. v3 renamed topics→tasks
-// (and the topic_id columns→task_id) and introduced subjects.
-const schemaVersion = 3
+// (and the topic_id columns→task_id) and introduced subjects; v4 added the
+// key/value settings table.
+const schemaVersion = 4
 
 // schema is the current database layout, applied to fresh databases. Existing
 // databases are stepped up by migrate(). There is deliberately no
@@ -87,7 +92,24 @@ CREATE TABLE IF NOT EXISTS focus_sessions (
   completed_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_focus_completed ON focus_sessions(completed_at);
-PRAGMA user_version = 3;
+-- settings is a small key/value bag for user preferences that travel with the
+-- data (currently just the daily review goal). Like focus_sessions it is written
+-- with single-row upserts, independent of the whole-graph save().
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+PRAGMA user_version = 4;
+`
+
+// migrateV3toV4 adds the settings table to an existing v3 database. Run inside a
+// transaction by migrate().
+const migrateV3toV4 = `
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+PRAGMA user_version = 4;
 `
 
 // migrateV2toV3 renames the v2 topic-centric layout to the v3 task/subject
@@ -123,18 +145,34 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		return err
 	}
-	switch {
-	case v >= schemaVersion:
-		return nil
-	case v == 0:
-		// Fresh database (or one created by this version): apply current schema.
-		_, err := db.Exec(schema)
-		return err
-	case v == 2:
-		return execTx(db, migrateV2toV3)
-	default:
+	if v > schemaVersion {
 		return fmt.Errorf("unsupported database schema version %d", v)
 	}
+	// Apply one migration step at a time, re-reading user_version after each, so a
+	// database several versions behind is stepped all the way up in one startup.
+	for v < schemaVersion {
+		switch v {
+		case 0:
+			// Fresh database (or one created by this version): apply current schema.
+			if _, err := db.Exec(schema); err != nil {
+				return err
+			}
+		case 2:
+			if err := execTx(db, migrateV2toV3); err != nil {
+				return err
+			}
+		case 3:
+			if err := execTx(db, migrateV3toV4); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unsupported database schema version %d", v)
+		}
+		if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // execTx runs a multi-statement SQL script in a single transaction.
@@ -191,6 +229,7 @@ func openStore(dbPath string) (*Store, error) {
 		jsonPath: filepath.Join(filepath.Dir(dbPath), "data.json"),
 		tasks:    []*Task{},
 		subjects: []*Subject{},
+		settings: Settings{DailyGoalMinutes: defaultDailyGoalMinutes},
 	}
 	if err := s.importLegacyJSON(); err != nil {
 		// Import is best-effort: a corrupt backup must not block startup.
@@ -201,6 +240,10 @@ func openStore(dbPath string) (*Store, error) {
 		return nil, err
 	}
 	if err := s.loadFocusSessions(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.loadSettings(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -501,6 +544,41 @@ func (s *Store) addFocusSession(fs *FocusSession) error {
 		return err
 	}
 	s.focus = append(s.focus, fs)
+	return nil
+}
+
+// loadSettings reads persisted preferences into memory, leaving the in-memory
+// defaults in place for any key the database doesn't have yet (e.g. a v3 database
+// just migrated to v4 has an empty settings table).
+func (s *Store) loadSettings() error {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = 'daily_goal_minutes'`).Scan(&value)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil // keep the default
+	case err != nil:
+		return err
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return fmt.Errorf("settings daily_goal_minutes: bad value %q: %w", value, err)
+	}
+	s.settings.DailyGoalMinutes = n
+	return nil
+}
+
+// setDailyGoalMinutes upserts the daily focus goal and updates the in-memory copy.
+// Like addFocusSession it writes a single row rather than going through save(),
+// keeping settings independent of the task-graph rewrite. The caller must hold the
+// lock.
+func (s *Store) setDailyGoalMinutes(n int) error {
+	if _, err := s.db.Exec(
+		`INSERT INTO settings (key, value) VALUES ('daily_goal_minutes', ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		strconv.Itoa(n)); err != nil {
+		return err
+	}
+	s.settings.DailyGoalMinutes = n
 	return nil
 }
 
