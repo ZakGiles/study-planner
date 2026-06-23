@@ -21,6 +21,7 @@ import (
 type State struct {
 	Subjects []*Subject `json:"subjects"`
 	Tasks    []*Task    `json:"tasks"`
+	Settings Settings   `json:"settings"`
 }
 
 // App is the Wails-bound application. Every mutating method returns the full,
@@ -186,7 +187,7 @@ func (a *App) snapshot() *State {
 		outSubjects[i] = &c
 	}
 
-	return &State{Subjects: outSubjects, Tasks: outTasks}
+	return &State{Subjects: outSubjects, Tasks: outTasks, Settings: a.store.settings}
 }
 
 // mutate runs fn under the store lock, persists, and returns the new
@@ -224,6 +225,24 @@ func (a *App) GetState() (*State, error) {
 	}
 	a.store.mu.Lock()
 	defer a.store.mu.Unlock()
+	return a.snapshot(), nil
+}
+
+// SetDailyGoalMinutes sets the target amount of focus time (in minutes) to log
+// each day, surfaced as the Home page's progress ring. A goal of 0 disables the
+// target. It persists the single setting row rather than rewriting the graph.
+func (a *App) SetDailyGoalMinutes(minutes int) (*State, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	if minutes < 0 {
+		return nil, errors.New("daily goal cannot be negative")
+	}
+	a.store.mu.Lock()
+	defer a.store.mu.Unlock()
+	if err := a.store.setDailyGoalMinutes(minutes); err != nil {
+		return nil, err
+	}
 	return a.snapshot(), nil
 }
 

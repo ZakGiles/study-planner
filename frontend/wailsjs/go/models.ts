@@ -74,6 +74,18 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class Settings {
+	    dailyGoalMinutes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Settings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dailyGoalMinutes = source["dailyGoalMinutes"];
+	    }
+	}
 	export class Task {
 	    id: string;
 	    name: string;
@@ -167,6 +179,7 @@ export namespace main {
 	export class State {
 	    subjects: Subject[];
 	    tasks: Task[];
+	    settings: Settings;
 	
 	    static createFrom(source: any = {}) {
 	        return new State(source);
@@ -176,6 +189,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.subjects = this.convertValues(source["subjects"], Subject);
 	        this.tasks = this.convertValues(source["tasks"], Task);
+	        this.settings = this.convertValues(source["settings"], Settings);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

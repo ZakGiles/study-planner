@@ -39,6 +39,17 @@ type Subject struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// Settings holds user preferences that live with the data rather than as
+// machine-local UI chrome. DailyGoalMinutes is the target amount of focus time
+// (in minutes) to log each day, surfaced as the Home page's progress ring.
+type Settings struct {
+	DailyGoalMinutes int `json:"dailyGoalMinutes"`
+}
+
+// defaultDailyGoalMinutes is the focus goal a fresh database starts with (2h), so
+// the Home ring is meaningful before the user ever opens settings.
+const defaultDailyGoalMinutes = 120
+
 // TaskColors are the palette tokens a task or subject may use; the frontend maps
 // each to a concrete colour. New tasks cycle through this list so they start out
 // distinct.

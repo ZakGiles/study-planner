@@ -11,11 +11,13 @@
     RescheduleOverdueSessions,
     GradeSession,
     GetFocusSessions,
+    SetDailyGoalMinutes,
   } from '../wailsjs/go/main/App.js';
   import TaskCard from './lib/TaskCard.svelte';
   import SubjectHeader from './lib/SubjectHeader.svelte';
   import Calendar from './lib/Calendar.svelte';
   import Stats from './lib/Stats.svelte';
+  import Home from './lib/Home.svelte';
   import Focus from './lib/Focus.svelte';
   import GradeModal from './lib/GradeModal.svelte';
   import { openModalCount } from './lib/ConfirmModal.svelte';
@@ -32,7 +34,10 @@
   // them so the Focus tab (which records) and the Stats tab (which reads) share
   // one source of truth.
   let focusSessions: main.FocusSession[] = [];
-  let activeTab: 'tasks' | 'agenda' | 'calendar' | 'stats' | 'focus' = 'tasks';
+  // Configurable daily focus-time goal (minutes), persisted in the backend store
+  // and shipped with every State; surfaced as the Home goal ring.
+  let dailyGoalMinutes = 0;
+  let activeTab: 'home' | 'tasks' | 'agenda' | 'calendar' | 'stats' | 'focus' = 'home';
   let loading = true;
   let errorMsg = '';
   let errorTimer: ReturnType<typeof setTimeout>;
@@ -95,6 +100,7 @@
     state: (s) => {
       tasks = s.tasks;
       subjects = s.subjects;
+      dailyGoalMinutes = s.settings.dailyGoalMinutes;
     },
     error: showError,
   });
@@ -120,6 +126,7 @@
   function onChanged(e: CustomEvent<main.State>) {
     tasks = e.detail.tasks;
     subjects = e.detail.subjects;
+    dailyGoalMinutes = e.detail.settings.dailyGoalMinutes;
   }
 
   function onError(e: CustomEvent<string>) {
@@ -203,6 +210,23 @@
     await apply(RescheduleOverdueSessions());
     catchingUp = false;
   }
+
+  // Persist a new daily focus goal (minutes) from the Home ring's inline editor.
+  async function setGoal(minutes: number) {
+    await apply(SetDailyGoalMinutes(minutes));
+  }
+
+  // Personalised header for the Home tab: a time-of-day greeting and the date,
+  // shown in place of the generic title/subtitle.
+  const greeting = (() => {
+    const h = new Date().getHours();
+    return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+  })();
+  const todayLabel = new Date().toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
 
   // Organisation: search text, selected tags and whether archived tasks show.
   let search = '';
@@ -371,6 +395,7 @@
 
   // Per-view header copy for the sticky content header.
   const TAB_META = {
+    home: { title: 'Home', sub: 'Your day at a glance' },
     tasks: { title: 'Tasks', sub: "Everything you're revising" },
     agenda: { title: 'Agenda', sub: "What's coming up next" },
     calendar: { title: 'Calendar', sub: 'Your month at a glance' },
@@ -380,6 +405,7 @@
   $: tabMeta = TAB_META[activeTab];
 
   const NAV = [
+    { id: 'home', label: 'Home' },
     { id: 'tasks', label: 'Tasks' },
     { id: 'agenda', label: 'Agenda' },
     { id: 'calendar', label: 'Calendar' },
@@ -420,7 +446,11 @@
             <span class="absolute left-[-0.85rem] top-2 bottom-2 w-[3px] rounded-r-[3px] bg-accent max-[720px]:left-[-0.5rem]" aria-hidden="true"></span>
           {/if}
           <span class="shrink-0 [&_svg]:h-[18px] [&_svg]:w-[18px] {activeTab === item.id ? 'text-accent-bright' : 'opacity-[0.85]'}">
-            {#if item.id === 'tasks'}
+            {#if item.id === 'home'}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V20h14V9.5" /><path d="M9.5 20v-6h5v6" />
+              </svg>
+            {:else if item.id === 'tasks'}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 3 21 7.5 12 12 3 7.5z" /><path d="M3 12 12 16.5 21 12" /><path d="M3 16.5 12 21l9-4.5" />
               </svg>
@@ -471,8 +501,8 @@
   <main class="content h-full min-w-0 flex-1 overflow-y-auto [overscroll-behavior:none] [scrollbar-gutter:stable]">
     <div class="sticky top-0 z-10 border-b border-line bg-bg">
       <div class="mx-auto max-w-content px-[1.6rem] pb-4 pt-[1.15rem] max-[720px]:px-[1.1rem]">
-        <h2 class="m-0 font-display text-[1.5rem] font-extrabold leading-[1.1] tracking-[-0.02em] text-fg-strong">{tabMeta.title}</h2>
-        <span class="mt-[0.12rem] block text-[0.82rem] text-fg-muted">{tabMeta.sub}</span>
+        <h2 class="m-0 font-display text-[1.5rem] font-extrabold leading-[1.1] tracking-[-0.02em] text-fg-strong">{activeTab === 'home' ? greeting : tabMeta.title}</h2>
+        <span class="mt-[0.12rem] block text-[0.82rem] text-fg-muted">{activeTab === 'home' ? todayLabel : tabMeta.sub}</span>
       </div>
     </div>
 
@@ -481,7 +511,21 @@
       <div class="py-12 text-fg-muted">Loading…</div>
     {:else}
         <div>
-          {#if activeTab === 'tasks'}
+          {#if activeTab === 'home'}
+            <Home
+              {tasks}
+              {focusSessions}
+              {dailyGoalMinutes}
+              {agendaBusy}
+              {catchingUp}
+              onToggle={toggleFromAgenda}
+              onGrade={(item) => (gradeTarget = { taskId: item.taskId, sessionId: item.sessionId, taskName: item.taskName })}
+              onCatchUp={catchUpOverdue}
+              onStartFocus={() => (activeTab = 'focus')}
+              onViewAgenda={() => (activeTab = 'agenda')}
+              onSetGoal={setGoal}
+            />
+          {:else if activeTab === 'tasks'}
             <section class="mb-[1.4rem] rounded-lg border border-line bg-surface px-[1.2rem] py-[1.1rem] shadow-1">
               <div class="mb-[0.8rem] flex items-baseline justify-between gap-2">
                 <h2 class="m-0 font-display text-base font-bold tracking-[-0.01em] text-fg-strong">New task</h2>
