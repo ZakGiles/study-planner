@@ -4,5 +4,6 @@ frontend/dist
 
 # Compiled binary from `go build`
 /study-planner
+/study-planner.exe
 # Wails-generated package.json hash (local build cache)
 frontend/package.json.md5

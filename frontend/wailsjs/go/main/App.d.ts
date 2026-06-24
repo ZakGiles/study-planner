@@ -16,6 +16,8 @@ export function DeleteSubject(arg1:string):Promise<main.State>;
 
 export function DeleteTask(arg1:string):Promise<main.State>;
 
+export function GetAutoStart():Promise<main.AutoStartStatus>;
+
 export function GetFocusSessions():Promise<Array<main.FocusSession>>;
 
 export function GetState():Promise<main.State>;
@@ -31,6 +33,8 @@ export function ReorderTasks(arg1:Array<string>):Promise<main.State>;
 export function RescheduleOverdueSessions():Promise<main.State>;
 
 export function RescheduleSession(arg1:string,arg2:string,arg3:string):Promise<main.State>;
+
+export function SetAutoStart(arg1:boolean):Promise<main.AutoStartStatus>;
 
 export function SetDailyGoalMinutes(arg1:number):Promise<main.State>;
 

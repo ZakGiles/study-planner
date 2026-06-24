@@ -19,11 +19,14 @@
   import Stats from './lib/Stats.svelte';
   import Home from './lib/Home.svelte';
   import Focus from './lib/Focus.svelte';
+  import Settings from './lib/Settings.svelte';
   import GradeModal from './lib/GradeModal.svelte';
   import { openModalCount } from './lib/ConfirmModal.svelte';
   import { makeMutator } from './lib/mutate';
   import { formatDate, relativeLabel, sessionStatus, plural } from './lib/dates';
   import { today } from './lib/today';
+  import './lib/theme'; // side-effect: applies the saved theme on startup (control lives in Settings)
+  import { loadSounds } from './lib/sounds';
   import { taskHex } from './lib/colors';
   import { dndzone } from 'svelte-dnd-action';
   import type { DndEvent } from 'svelte-dnd-action';
@@ -37,7 +40,7 @@
   // Configurable daily focus-time goal (minutes), persisted in the backend store
   // and shipped with every State; surfaced as the Home goal ring.
   let dailyGoalMinutes = 0;
-  let activeTab: 'home' | 'tasks' | 'agenda' | 'calendar' | 'stats' | 'focus' = 'home';
+  let activeTab: 'home' | 'tasks' | 'agenda' | 'calendar' | 'stats' | 'focus' | 'settings' = 'home';
   let loading = true;
   let errorMsg = '';
   let errorTimer: ReturnType<typeof setTimeout>;
@@ -50,22 +53,9 @@
   let newSubjectName = '';
   let addingSubject = false;
 
-  // Theme is a pure UI preference, persisted locally rather than in the store.
-  let theme: 'dark' | 'light' = localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
-  $: applyTheme(theme);
-
-  // Swapping the theme re-points every colour variable; without suspending
-  // transitions for the swap, every element with a hover transition would fade,
-  // animating the whole UI. Disable transitions for the one frame the change
-  // lands in, then restore them so hovers still animate.
-  function applyTheme(t: 'dark' | 'light') {
-    const root = document.documentElement;
-    root.classList.add('no-transition');
-    root.dataset.theme = t;
-    localStorage.setItem('theme', t);
-    void root.offsetWidth; // force a reflow so the swap paints instantly
-    requestAnimationFrame(() => root.classList.remove('no-transition'));
-  }
+  // Theme is a pure UI preference persisted locally; the store applies it (and
+  // the no-transition swap) on change. The Settings control drives it.
+  // See lib/theme.ts.
 
   // Keyboard shortcuts: n → new task, / → search (when not already typing).
   let nameInput: HTMLInputElement;
@@ -114,6 +104,8 @@
     } catch (e) {
       showError(`Couldn't load focus history: ${e}`);
     }
+    // Hydrate alert sounds from IndexedDB so both Focus and Settings share them.
+    void loadSounds();
     loading = false;
   });
 
@@ -401,6 +393,7 @@
     calendar: { title: 'Calendar', sub: 'Your month at a glance' },
     stats: { title: 'Stats', sub: 'Progress and streaks' },
     focus: { title: 'Focus', sub: 'Keep track of study time' },
+    settings: { title: 'Settings', sub: 'Preferences and startup' },
   } as const;
   $: tabMeta = TAB_META[activeTab];
 
@@ -488,12 +481,19 @@
 
     <div class="mt-auto pt-[0.6rem]">
       <button
-        class="flex w-full cursor-pointer items-center gap-[0.7rem] rounded-md border border-line bg-transparent px-[0.7rem] py-[0.52rem] text-[0.85rem] font-semibold text-fg-muted transition-colors hover:border-line-strong hover:bg-surface-2 hover:text-fg-strong max-[720px]:justify-center max-[720px]:px-0"
-        title="Switch to {theme === 'dark' ? 'light' : 'dark'} theme"
-        on:click={() => (theme = theme === 'dark' ? 'light' : 'dark')}
+        class="relative flex w-full cursor-pointer items-center gap-[0.7rem] rounded-md px-[0.7rem] py-[0.58rem] text-left text-[0.9rem] font-semibold transition-colors hover:bg-surface-2 hover:text-fg-strong max-[720px]:justify-center max-[720px]:px-0 {activeTab === 'settings' ? 'bg-accent-soft text-fg-strong' : 'text-fg-muted'}"
+        on:click={() => (activeTab = 'settings')}
+        title="Settings"
       >
-        <span class="w-[18px] shrink-0 text-center text-base max-[720px]:w-auto" aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>
-        <span class="max-[720px]:hidden">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+        {#if activeTab === 'settings'}
+          <span class="absolute left-[-0.85rem] top-2 bottom-2 w-[3px] rounded-r-[3px] bg-accent max-[720px]:left-[-0.5rem]" aria-hidden="true"></span>
+        {/if}
+        <span class="shrink-0 [&_svg]:h-[18px] [&_svg]:w-[18px] {activeTab === 'settings' ? 'text-accent-bright' : 'opacity-[0.85]'}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V20a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.5 18.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H2a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 3.7 8.5a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H8.5a1.7 1.7 0 0 0 1.03-1.56V2a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V8.5a1.7 1.7 0 0 0 1.56 1.03H22a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z" />
+          </svg>
+        </span>
+        <span class="min-w-0 flex-1 max-[720px]:hidden">Settings</span>
       </button>
     </div>
   </aside>
@@ -855,6 +855,8 @@
             <Calendar tasks={visibleActive} {subjects} on:changed={onChanged} on:error={onError} />
           {:else if activeTab === 'stats'}
             <Stats {tasks} {subjects} {focusSessions} />
+          {:else if activeTab === 'settings'}
+            <Settings {dailyGoalMinutes} onSetGoal={setGoal} on:error={onError} />
           {/if}
 
           <!-- Focus stays mounted (just hidden) across tab switches so a running

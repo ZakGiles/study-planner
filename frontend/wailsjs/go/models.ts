@@ -1,5 +1,19 @@
 export namespace main {
 	
+	export class AutoStartStatus {
+	    enabled: boolean;
+	    available: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AutoStartStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.available = source["available"];
+	    }
+	}
 	export class FocusSession {
 	    id: string;
 	    taskId: string;
