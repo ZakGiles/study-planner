@@ -30,6 +30,10 @@ export function DeleteTask(arg1) {
   return window['go']['main']['App']['DeleteTask'](arg1);
 }
 
+export function GetAutoStart() {
+  return window['go']['main']['App']['GetAutoStart']();
+}
+
 export function GetFocusSessions() {
   return window['go']['main']['App']['GetFocusSessions']();
 }
@@ -60,6 +64,10 @@ export function RescheduleOverdueSessions() {
 
 export function RescheduleSession(arg1, arg2, arg3) {
   return window['go']['main']['App']['RescheduleSession'](arg1, arg2, arg3);
+}
+
+export function SetAutoStart(arg1) {
+  return window['go']['main']['App']['SetAutoStart'](arg1);
 }
 
 export function SetDailyGoalMinutes(arg1) {
