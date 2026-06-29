@@ -5,7 +5,7 @@
   // and flows through App via the onSetGoal callback. Auto-start is an OS-level
   // toggle handled entirely by the backend.
   import { createEventDispatcher, onMount } from 'svelte';
-  import { GetAutoStart, SetAutoStart } from '../../wailsjs/go/main/App.js';
+  import { GetAutoStart, SetAutoStart, ExportCalendar } from '../../wailsjs/go/main/App.js';
   import type { main } from '../../wailsjs/go/models';
   import { theme } from './theme';
   import { focusMin, breakMin, mode, FOCUS_MIN, FOCUS_MAX, BREAK_MIN, BREAK_MAX } from './focusPrefs';
@@ -62,6 +62,25 @@
       dispatch('error', String(e));
     } finally {
       autoBusy = false;
+    }
+  }
+
+  // Calendar export: writes the outstanding schedule to an .ics file the user
+  // imports into Google/Apple/Outlook. The result path is shown inline; the
+  // export is a point-in-time snapshot, so re-export to pick up later changes.
+  let exporting = false;
+  let exportMsg = '';
+  async function exportCalendar() {
+    if (exporting) return;
+    exporting = true;
+    exportMsg = '';
+    try {
+      const path = await ExportCalendar();
+      exportMsg = path ? `Saved to ${path}` : ''; // "" = the user cancelled
+    } catch (e) {
+      dispatch('error', `Couldn't export calendar: ${e}`);
+    } finally {
+      exporting = false;
     }
   }
 </script>
@@ -161,5 +180,19 @@
       />
       <span>Launch on login</span>
     </label>
+  </div>
+
+  <!-- Calendar export -->
+  <div class="rounded-lg border border-line bg-surface px-5 py-[1.1rem] shadow-1">
+    <h3 class="m-0 mb-[0.2rem] font-display text-base font-bold text-fg-strong">Calendar export</h3>
+    <p class="mb-[0.8rem] text-[0.8rem] text-fg-muted">Download an .ics file of your outstanding study schedule to import into Google, Apple or Outlook calendars. It's a snapshot — export again to reflect later changes.</p>
+    <div class="flex items-center gap-3">
+      <button class="btn primary" type="button" on:click={exportCalendar} disabled={exporting}>
+        {exporting ? 'Exporting…' : 'Export .ics'}
+      </button>
+      {#if exportMsg}
+        <span class="min-w-0 truncate text-[0.8rem] text-fg-muted" title={exportMsg}>{exportMsg}</span>
+      {/if}
+    </div>
   </div>
 </section>

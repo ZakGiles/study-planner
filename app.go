@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -226,6 +227,38 @@ func (a *App) GetState() (*State, error) {
 	a.store.mu.Lock()
 	defer a.store.mu.Unlock()
 	return a.snapshot(), nil
+}
+
+// ExportCalendar writes the outstanding study schedule to an .ics file chosen by
+// the user through a native save dialog, for importing into Google, Apple or
+// Outlook calendars. It returns the path written, or "" if the user cancelled
+// the dialog. The export is a point-in-time snapshot built under the store lock;
+// re-export to reflect later schedule changes.
+func (a *App) ExportCalendar() (string, error) {
+	if err := a.ready(); err != nil {
+		return "", err
+	}
+	a.store.mu.Lock()
+	ics := buildICS(a.store.tasks, a.now())
+	a.store.mu.Unlock()
+
+	path, err := wruntime.SaveFileDialog(a.ctx, wruntime.SaveDialogOptions{
+		Title:           "Export study calendar",
+		DefaultFilename: "study-planner.ics",
+		Filters: []wruntime.FileFilter{
+			{DisplayName: "Calendar files (*.ics)", Pattern: "*.ics"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", nil // user cancelled the dialog
+	}
+	if err := os.WriteFile(path, []byte(ics), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // SetDailyGoalMinutes sets the target amount of focus time (in minutes) to log

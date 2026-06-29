@@ -30,6 +30,10 @@ export function DeleteTask(arg1) {
   return window['go']['main']['App']['DeleteTask'](arg1);
 }
 
+export function ExportCalendar() {
+  return window['go']['main']['App']['ExportCalendar']();
+}
+
 export function GetAutoStart() {
   return window['go']['main']['App']['GetAutoStart']();
 }
