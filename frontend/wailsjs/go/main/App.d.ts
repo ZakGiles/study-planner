@@ -16,6 +16,8 @@ export function DeleteSubject(arg1:string):Promise<main.State>;
 
 export function DeleteTask(arg1:string):Promise<main.State>;
 
+export function ExportCalendar():Promise<string>;
+
 export function GetAutoStart():Promise<main.AutoStartStatus>;
 
 export function GetFocusSessions():Promise<Array<main.FocusSession>>;
