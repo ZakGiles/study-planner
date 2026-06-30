@@ -95,19 +95,24 @@
     if (left <= 0) completeBlock();
   }
 
+  // Persist `dur` seconds of focus against the selected task and hand the updated
+  // log back to the parent. Shared by every path that banks a focus block.
+  async function bankFocus(dur: number) {
+    try {
+      const list = await RecordFocusSession(selectedTaskId, dur);
+      dispatch('recorded', list);
+    } catch (e) {
+      dispatch('error', `Couldn't save that focus block: ${e}`);
+    }
+  }
+
   async function completeBlock() {
     running = false; // stops the interval via syncInterval
     started = false; // back to a fresh, manually-gated next step
     if (phase === 'focus') {
       playSound('study'); // the study block's timer just hit zero
-      const dur = blockLen;
       justFinishedFocus = true;
-      try {
-        const list = await RecordFocusSession(selectedTaskId, dur);
-        dispatch('recorded', list);
-      } catch (e) {
-        dispatch('error', `Couldn't save that focus block: ${e}`);
-      }
+      await bankFocus(blockLen);
       detachClimb = climb; // remember where the wings come off (near the sun)
       detachSway = sway;
       phase = 'break'; // wings fall off and he drops from the sun
@@ -127,12 +132,18 @@
   function pause() {
     running = false;
   }
-  function reset() {
-    // Abandon the current block — nothing is recorded (only completed focus
-    // blocks count). Returning started to false re-sizes it to a fresh block.
+  async function reset() {
+    // Abandon the current block. A timer focus block that ran at least
+    // MIN_RECORD_SEC still banks the focus done so far before resetting to a
+    // fresh block; shorter blocks, breaks, and the stopwatch's own Reset record
+    // nothing. Returning started to false re-sizes it to a fresh block.
+    const dur = blockLen - remaining; // capture before the !started reactive flush
     running = false;
     started = false;
-    justFinishedFocus = false;
+    justFinishedFocus = false; // Reset returns to a fresh focus block, not a break
+    if (blockMode === 'timer' && phase === 'focus' && dur >= MIN_RECORD_SEC) {
+      await bankFocus(dur);
+    }
   }
   function skipBreak() {
     // Back to a fresh focus block, starting from the ground.
@@ -142,15 +153,23 @@
     justFinishedFocus = false;
   }
   // End the focus phase early and drop straight into a fresh break: his wings
-  // come off and he falls to the ground. The abandoned focus block isn't
-  // recorded — only blocks that run to zero count.
-  function skipToBreak() {
+  // come off and he falls to the ground. The focus time done so far is banked
+  // (like the stopwatch's Stop) when it's at least MIN_RECORD_SEC; shorter
+  // attempts record nothing.
+  async function skipToBreak() {
     detachClimb = climb; // wings come off at whatever height he'd reached
     detachSway = sway;
-    phase = 'break';
-    started = false;
     running = false;
-    justFinishedFocus = false;
+    started = false;
+    const dur = blockLen - remaining; // focus elapsed before the early exit
+    if (dur >= MIN_RECORD_SEC) {
+      playSound('study');
+      justFinishedFocus = true; // drives the "Nice focus — take a break" message
+      await bankFocus(dur);
+    } else {
+      justFinishedFocus = false;
+    }
+    phase = 'break';
   }
 
   // What the big clock shows: time counted up (stopwatch focus) or time left.
@@ -160,6 +179,7 @@
   // (1 - e^(-t/τ)) that always approaches the sun but never reaches it — the same
   // climb shape no matter how long you run. τ sets how quickly he nears the top.
   const STOPWATCH_TAU = 25 * 60; // seconds; ~63% of the way up at this mark
+  const MIN_RECORD_SEC = 60; // shortest early-exit focus block we bother logging
   $: progress = countUp
     ? 1 - Math.exp(-elapsed / STOPWATCH_TAU)
     : (blockLen > 0 ? (blockLen - remaining) / blockLen : 0);
@@ -205,12 +225,7 @@
     if (dur >= 1) {
       playSound('study');
       justFinishedFocus = true;
-      try {
-        const list = await RecordFocusSession(selectedTaskId, dur);
-        dispatch('recorded', list);
-      } catch (e) {
-        dispatch('error', `Couldn't save that focus block: ${e}`);
-      }
+      await bankFocus(dur);
     }
     phase = 'break'; // wings fall off and he drops from wherever he'd reached
   }
