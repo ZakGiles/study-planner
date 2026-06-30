@@ -171,8 +171,9 @@ func normalizeSubjectOrder(subjects []*Subject) {
 // task. Unlike sessions, focus records carry no SQL foreign key to tasks: the
 // store's whole-graph save() rewrites the tasks table on every mutation, which
 // would cascade onto focus history; keeping task_id a plain string lets the
-// focus log persist independently and survive task edits and deletes. Only
-// completed focus blocks are recorded — abandoned or partial time is not.
+// focus log persist independently and survive task edits and deletes. Both
+// completed blocks and the partial time from blocks ended early are recorded;
+// only fully-abandoned attempts (below the frontend's minimum) are not.
 type FocusSession struct {
 	ID          string    `json:"id"`
 	TaskID      string    `json:"taskId"` // "" = general focus

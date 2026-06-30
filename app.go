@@ -580,10 +580,11 @@ func (a *App) GetFocusSessions() ([]*FocusSession, error) {
 	return a.focusSnapshot(), nil
 }
 
-// RecordFocusSession logs a completed focus block of durationSec seconds against
-// taskID ("" for general focus, otherwise an existing task) and returns the
-// full focus log so the frontend can replace its state in one go. Only the
-// frontend's completed blocks reach here — abandoned time is never recorded.
+// RecordFocusSession logs a focus block of durationSec seconds against taskID
+// ("" for general focus, otherwise an existing task) and returns the full focus
+// log so the frontend can replace its state in one go. The frontend sends both
+// blocks that ran to completion and the partial time from blocks ended early
+// (above a minimum it enforces); fully-abandoned attempts never reach here.
 func (a *App) RecordFocusSession(taskID string, durationSec int) ([]*FocusSession, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
