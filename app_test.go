@@ -589,3 +589,53 @@ func TestFocusSurvivesTaskMutationAndReload(t *testing.T) {
 		t.Fatalf("focus after reload = %+v, want 1 record of 1500s", reopened.focus)
 	}
 }
+
+// TestMutateRollsBackOnSaveFailure: when save() fails, the in-memory graph must
+// revert to its pre-mutation state — otherwise memory and disk drift apart and
+// the next successful save silently persists the "failed" change.
+func TestMutateRollsBackOnSaveFailure(t *testing.T) {
+	a, must := newTestApp(t)
+	must(a.AddTask("Keep", "", ""))
+
+	// Closing the handle makes every subsequent save() fail.
+	a.store.db.Close()
+
+	if _, err := a.AddTask("Doomed", "", ""); err == nil {
+		t.Fatal("AddTask with a closed database should error")
+	}
+	if len(a.store.tasks) != 1 || a.store.tasks[0].Name != "Keep" {
+		t.Fatalf("in-memory tasks after failed save = %+v, want just the original", a.store.tasks)
+	}
+}
+
+// TestGradeSessionBadDateRollsBack: a session date that fails to parse (possible
+// via the unvalidated legacy JSON import) must error out without marking the
+// session done — GradeSession validates before mutating, and mutate() restores
+// the backup on fn errors.
+func TestGradeSessionBadDateRollsBack(t *testing.T) {
+	a, must := newTestApp(t)
+	tasks := must(a.AddTask("Maths", "", ""))
+	taskID := tasks[0].ID
+
+	// Inject a malformed date directly, as a legacy import could have.
+	a.store.mu.Lock()
+	bad := &Session{ID: "bad", Date: "garbage"}
+	a.store.findTask(taskID).Sessions = []*Session{bad}
+	if err := a.store.save(); err != nil {
+		a.store.mu.Unlock()
+		t.Fatal(err)
+	}
+	a.store.mu.Unlock()
+
+	if _, err := a.GradeSession(taskID, "bad", "good"); err == nil {
+		t.Fatal("grading a session with an unparsable date should error")
+	}
+	st, err := a.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := st.Tasks[0].Sessions[0]
+	if got.Done || got.CompletedAt != nil {
+		t.Fatalf("session after failed grade = %+v, want still pending", got)
+	}
+}
