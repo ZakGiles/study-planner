@@ -23,8 +23,8 @@
   import GradeModal from './lib/GradeModal.svelte';
   import { openModalCount } from './lib/ConfirmModal.svelte';
   import { makeMutator } from './lib/mutate';
-  import { formatDate, relativeLabel, sessionStatus, plural } from './lib/dates';
-  import { today } from './lib/today';
+  import { formatDate, parseDate, relativeLabel, sessionStatus, plural } from './lib/dates';
+  import { today, dayPeriod } from './lib/today';
   import './lib/theme'; // side-effect: applies the saved theme on startup (control lives in Settings)
   import { loadSounds } from './lib/sounds';
   import { taskHex } from './lib/colors';
@@ -209,12 +209,16 @@
   }
 
   // Personalised header for the Home tab: a time-of-day greeting and the date,
-  // shown in place of the generic title/subtitle.
-  const greeting = (() => {
-    const h = new Date().getHours();
-    return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-  })();
-  const todayLabel = new Date().toLocaleDateString(undefined, {
+  // shown in place of the generic title/subtitle. Both derive from the live
+  // stores so an app left open across noon/18:00 or midnight updates instead
+  // of keeping the greeting and date it launched with.
+  const GREETINGS = {
+    morning: 'Good morning',
+    afternoon: 'Good afternoon',
+    evening: 'Good evening',
+  } as const;
+  $: greeting = GREETINGS[$dayPeriod];
+  $: todayLabel = parseDate($today).toLocaleDateString(undefined, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
