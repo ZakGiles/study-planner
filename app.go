@@ -163,46 +163,42 @@ func (a *App) ready() error {
 // returned value after the lock is released, so handing out interior pointers
 // would race with the next mutation.
 func (a *App) snapshot() *State {
-	tasks := a.store.tasks
-	for _, t := range tasks {
+	for _, t := range a.store.tasks {
 		sortSessions(t.Sessions)
 	}
-	sortTasks(tasks)
-	outTasks := make([]*Task, len(tasks))
-	for i, t := range tasks {
-		c := *t
-		c.Tags = make([]string, len(t.Tags))
-		copy(c.Tags, t.Tags)
-		c.Sessions = make([]*Session, len(t.Sessions))
-		for j, s := range t.Sessions {
-			sc := *s
-			c.Sessions[j] = &sc
-		}
-		outTasks[i] = &c
-	}
-
+	sortTasks(a.store.tasks)
 	sortSubjects(a.store.subjects)
-	outSubjects := make([]*Subject, len(a.store.subjects))
-	for i, sub := range a.store.subjects {
-		c := *sub
-		outSubjects[i] = &c
+	return &State{
+		Subjects: cloneSubjects(a.store.subjects),
+		Tasks:    cloneTasks(a.store.tasks),
+		Settings: a.store.settings,
 	}
-
-	return &State{Subjects: outSubjects, Tasks: outTasks, Settings: a.store.settings}
 }
 
-// mutate runs fn under the store lock, persists, and returns the new
-// snapshot. fn returning an error skips the save.
+// mutate runs fn under the store lock, persists, and returns the new snapshot.
+// The graph is restored from a pre-mutation backup when fn or the save fails,
+// so memory never drifts from disk: without the rollback, a failed save (or an
+// fn erroring after partial changes) would leave the mutation live in memory,
+// invisible to the frontend, and silently persisted by the next successful
+// save.
 func (a *App) mutate(fn func() error) (*State, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
 	}
 	a.store.mu.Lock()
 	defer a.store.mu.Unlock()
+	backupTasks := cloneTasks(a.store.tasks)
+	backupSubjects := cloneSubjects(a.store.subjects)
+	restore := func() {
+		a.store.tasks = backupTasks
+		a.store.subjects = backupSubjects
+	}
 	if err := fn(); err != nil {
+		restore()
 		return nil, err
 	}
 	if err := a.store.save(); err != nil {
+		restore()
 		return nil, err
 	}
 	return a.snapshot(), nil
@@ -702,14 +698,15 @@ func (a *App) GradeSession(taskID, sessionID, grade string) (*State, error) {
 		if graded.Done {
 			return errors.New("session is already done")
 		}
-		now := a.now()
-		graded.Done = true
-		graded.CompletedAt = &now
-
+		// Validate before mutating: a malformed date (possible via the legacy
+		// JSON import) must not leave the session half-graded.
 		gradedDate, err := time.Parse(dateLayout, graded.Date)
 		if err != nil {
 			return err
 		}
+		now := a.now()
+		graded.Done = true
+		graded.CompletedAt = &now
 		// Only pending sessions occupy a day (pendingDates) — done sessions are
 		// historical, so the re-spaced reviews may land on (and coexist with) a
 		// completed day; notably, grading "again" can still schedule tomorrow

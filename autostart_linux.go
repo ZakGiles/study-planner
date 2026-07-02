@@ -77,14 +77,38 @@ func setAutoStartEnabled(enabled bool) error {
 	return os.WriteFile(path, []byte(linuxDesktopContents(autoStartName, exe)), 0o644)
 }
 
+// desktopExecArg quotes one Exec argument per the freedesktop Desktop Entry
+// spec, which layers two escapings:
+//
+//  1. exec layer — inside double quotes, backslash, backtick, dollar and the
+//     quote itself are backslash-escaped, and a literal % becomes %% (field
+//     code escaping);
+//  2. value layer — the whole line is also a string value whose unescaping
+//     (\\ -> \) runs BEFORE Exec parsing, so every exec-layer backslash must
+//     be written twice.
+//
+// e.g. the path /opt/a\b"c$d%e/app is written Exec="/opt/a\\\\b\\"c\\$d%%e/app"
+func desktopExecArg(path string) string {
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		"`", "\\`",
+		`$`, `\$`,
+		`"`, `\"`,
+	)
+	quoted := `"` + r.Replace(path) + `"`
+	quoted = strings.ReplaceAll(quoted, `%`, `%%`)
+	return strings.ReplaceAll(quoted, `\`, `\\`) // value-layer pass
+}
+
 // linuxDesktopContents builds the autostart .desktop entry. Pure (no I/O) so it
-// can be unit-tested. The Exec path is wrapped in double quotes per the desktop
-// entry spec so a path with spaces stays a single argument.
+// can be unit-tested. The Exec path is quoted and escaped per the desktop entry
+// spec so paths with spaces or shell-special characters survive intact. Name= is
+// the app constant (autoStartName), which needs no escaping.
 func linuxDesktopContents(name, exePath string) string {
 	return fmt.Sprintf(`[Desktop Entry]
 Type=Application
 Name=%s
-Exec="%s"
+Exec=%s
 X-GNOME-Autostart-enabled=true
-`, name, strings.ReplaceAll(exePath, `"`, `\"`))
+`, name, desktopExecArg(exePath))
 }

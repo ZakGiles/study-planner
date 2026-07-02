@@ -3,9 +3,28 @@
 package main
 
 import (
+	"encoding/xml"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 )
+
+// wellFormedXML reports whether s parses as XML (the DOCTYPE is consumed as a
+// directive token).
+func wellFormedXML(t *testing.T, s string) bool {
+	t.Helper()
+	dec := xml.NewDecoder(strings.NewReader(s))
+	for {
+		_, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			return true
+		}
+		if err != nil {
+			return false
+		}
+	}
+}
 
 func TestDarwinPlistContents(t *testing.T) {
 	got := darwinPlistContents("com.wails.study-planner", "/Applications/My App.app")
@@ -23,6 +42,25 @@ func TestDarwinPlistContents(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, "<?xml") {
 		t.Fatalf("plist should start with an XML declaration, got:\n%s", got)
+	}
+	if !wellFormedXML(t, got) {
+		t.Fatalf("plist is not well-formed XML:\n%s", got)
+	}
+}
+
+// TestDarwinPlistContentsEscapesXML: a bundle path containing XML-special
+// characters must be escaped — written raw, launchd rejects the whole plist
+// and the login item silently never fires.
+func TestDarwinPlistContentsEscapesXML(t *testing.T) {
+	got := darwinPlistContents("com.wails.study-planner", "/Users/x/Dev & Play/<Study>.app")
+	if want := "<string>/Users/x/Dev &amp; Play/&lt;Study&gt;.app</string>"; !strings.Contains(got, want) {
+		t.Fatalf("plist missing escaped path %q in:\n%s", want, got)
+	}
+	if strings.Contains(got, "Dev & Play") {
+		t.Fatalf("raw unescaped path leaked into plist:\n%s", got)
+	}
+	if !wellFormedXML(t, got) {
+		t.Fatalf("plist with special characters is not well-formed XML:\n%s", got)
 	}
 }
 

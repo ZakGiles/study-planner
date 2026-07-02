@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -109,9 +110,19 @@ func setAutoStartEnabled(enabled bool) error {
 	return os.WriteFile(path, []byte(darwinPlistContents(autoStartLabel, app)), 0o644)
 }
 
+// xmlEscape escapes a string for use as XML character data. A plist is XML, so
+// a bundle path containing e.g. "&" written raw would make the file unparsable
+// and launchd would silently ignore the agent.
+func xmlEscape(s string) string {
+	var b strings.Builder
+	// EscapeText only errors on writer failure; strings.Builder never fails.
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
+}
+
 // darwinPlistContents builds the LaunchAgent plist. Pure (no I/O) so it can be
 // unit-tested. The .app path goes through `open` as a separate ProgramArguments
-// element, so spaces need no escaping.
+// element, so spaces need no shell escaping — only XML escaping.
 func darwinPlistContents(label, bundlePath string) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -128,5 +139,5 @@ func darwinPlistContents(label, bundlePath string) string {
 	<true/>
 </dict>
 </plist>
-`, label, bundlePath)
+`, xmlEscape(label), xmlEscape(bundlePath))
 }

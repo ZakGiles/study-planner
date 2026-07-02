@@ -373,3 +373,106 @@ func TestMigrateV3toV4(t *testing.T) {
 		t.Fatalf("setDailyGoalMinutes after migration: %v", err)
 	}
 }
+
+// TestLegacyImportDoesNotWipeSubjects is the regression test for the import
+// re-firing on a subjects-only database: with zero tasks and a data.json beside
+// the db (even an empty one), reopening used to run save() while the in-memory
+// subject list was still empty, deleting every subject.
+func TestLegacyImportDoesNotWipeSubjects(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "data.db")
+
+	s, err := openStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.subjects = []*Subject{{ID: "sub1", Name: "Science", CreatedAt: time.Now()}}
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	// A leftover legacy backup — content irrelevant, "[]" is enough to trigger it.
+	if err := os.WriteFile(filepath.Join(dir, "data.json"), []byte(`[]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := openStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if len(reopened.subjects) != 1 || reopened.subjects[0].Name != "Science" {
+		t.Fatalf("subjects wiped by legacy import: %+v", reopened.subjects)
+	}
+}
+
+// TestLegacyImportRunsOnce: once a store has imported (or latched), deleting all
+// tasks must not resurrect them from the data.json backup on the next startup.
+func TestLegacyImportRunsOnce(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "data.db")
+	jsonPath := filepath.Join(dir, "data.json")
+	legacy := `[{"id":"t1","name":"Old","tags":[],"sessions":[],"createdAt":"2026-06-01T09:30:00Z"}]`
+	if err := os.WriteFile(jsonPath, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := openStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.tasks) != 1 {
+		t.Fatalf("first run should import, got %d tasks", len(s.tasks))
+	}
+	// The user deletes everything; the tasks table is empty again.
+	s.tasks = []*Task{}
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	reopened, err := openStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if len(reopened.tasks) != 0 {
+		t.Fatalf("deleted tasks resurrected from data.json: %+v", reopened.tasks)
+	}
+	// The backup itself must still be untouched on disk.
+	if _, err := os.Stat(jsonPath); err != nil {
+		t.Fatalf("data.json should be kept as backup: %v", err)
+	}
+}
+
+// TestLegacyImportSkipsWhenFocusOnly: focus history alone counts as real data,
+// so a data.json appearing later is latched away without importing.
+func TestLegacyImportSkipsWhenFocusOnly(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "data.db")
+
+	s, err := openStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.addFocusSession(&FocusSession{ID: "f1", DurationSec: 1500, CompletedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	legacy := `[{"id":"x","name":"Should not import","tags":[],"sessions":[],"createdAt":"2026-06-01T09:30:00Z"}]`
+	if err := os.WriteFile(filepath.Join(dir, "data.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := openStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if len(reopened.tasks) != 0 {
+		t.Fatalf("import should be skipped when focus history exists, got %+v", reopened.tasks)
+	}
+	if len(reopened.focus) != 1 {
+		t.Fatalf("focus log lost: %+v", reopened.focus)
+	}
+}

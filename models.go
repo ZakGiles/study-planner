@@ -290,3 +290,36 @@ func sortSessions(sessions []*Session) {
 		return sessions[i].Date < sessions[j].Date
 	})
 }
+
+// cloneTasks deep-copies a task list, including tags and sessions, so the copy
+// shares no mutable memory with the original. Used for the pre-mutation backup
+// in mutate() and the snapshots served to the frontend.
+func cloneTasks(tasks []*Task) []*Task {
+	out := make([]*Task, len(tasks))
+	for i, t := range tasks {
+		c := *t
+		c.Tags = make([]string, len(t.Tags))
+		copy(c.Tags, t.Tags)
+		c.Sessions = make([]*Session, len(t.Sessions))
+		for j, s := range t.Sessions {
+			sc := *s
+			if s.CompletedAt != nil {
+				ts := *s.CompletedAt
+				sc.CompletedAt = &ts
+			}
+			c.Sessions[j] = &sc
+		}
+		out[i] = &c
+	}
+	return out
+}
+
+// cloneSubjects deep-copies a subject list — mirrors cloneTasks.
+func cloneSubjects(subjects []*Subject) []*Subject {
+	out := make([]*Subject, len(subjects))
+	for i, sub := range subjects {
+		c := *sub
+		out[i] = &c
+	}
+	return out
+}

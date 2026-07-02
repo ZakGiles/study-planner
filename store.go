@@ -93,8 +93,9 @@ CREATE TABLE IF NOT EXISTS focus_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_focus_completed ON focus_sessions(completed_at);
 -- settings is a small key/value bag for user preferences that travel with the
--- data (currently just the daily review goal). Like focus_sessions it is written
--- with single-row upserts, independent of the whole-graph save().
+-- data (the daily review goal), plus internal flags (the one-shot legacy-import
+-- latch). Like focus_sessions it is written with single-row upserts, independent
+-- of the whole-graph save().
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -258,25 +259,49 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// importLegacyJSON, on first run only (no tasks yet), imports a legacy data.json
-// into the database and leaves the JSON file in place as a backup.
+// legacyImportedKey is the settings latch marking the one-time data.json import
+// as done (or deliberately skipped). Without it, the import would re-fire on any
+// later startup where the tasks table happens to be empty — data.json is kept
+// forever as a backup — wiping subjects (save() runs before load(), while the
+// in-memory subject list is still empty) and resurrecting deleted tasks.
+const legacyImportedKey = "legacy_imported"
+
+// importLegacyJSON imports a legacy data.json into the database once, on a
+// store's true first run, and leaves the JSON file in place as a backup. The
+// settings latch makes it one-shot; a database holding any real data (tasks,
+// subjects or focus history) is latched without importing so the backup can
+// never overwrite live state. A fresh, empty store with no data.json stays
+// unlatched, so dropping a backup in before first use still restores it.
 func (s *Store) importLegacyJSON() error {
-	var count int
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM tasks").Scan(&count); err != nil {
+	if _, ok, err := s.getSetting(legacyImportedKey); err != nil {
 		return err
+	} else if ok {
+		return nil // already imported (or skipped) on an earlier run
 	}
-	if count > 0 {
-		return nil // database already populated; nothing to import
+	for _, table := range []string{"tasks", "subjects", "focus_sessions"} {
+		var count int
+		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil {
+			return err
+		}
+		if count > 0 {
+			// Real data exists (predating the latch): never import over it.
+			return s.setSetting(legacyImportedKey, "1")
+		}
 	}
 	tasks, err := readLegacyJSON(s.jsonPath)
 	if err != nil {
 		return err
 	}
 	if tasks == nil {
-		return nil // no data.json present
+		return nil // no data.json present; leave unlatched for a later restore
 	}
-	s.tasks = tasks
-	return s.save()
+	if len(tasks) > 0 {
+		s.tasks = tasks
+		if err := s.save(); err != nil {
+			return err
+		}
+	}
+	return s.setSetting(legacyImportedKey, "1")
 }
 
 // readLegacyJSON reads and normalizes tasks from a legacy data.json. A missing
@@ -547,17 +572,37 @@ func (s *Store) addFocusSession(fs *FocusSession) error {
 	return nil
 }
 
+// getSetting reads one settings row; ok is false when the key has never been
+// written.
+func (s *Store) getSetting(key string) (value string, ok bool, err error) {
+	err = s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", false, nil
+	case err != nil:
+		return "", false, err
+	}
+	return value, true, nil
+}
+
+// setSetting upserts one settings row. Like addFocusSession it writes a single
+// row rather than going through save(), keeping settings independent of the
+// task-graph rewrite.
+func (s *Store) setSetting(key, value string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO settings (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		key, value)
+	return err
+}
+
 // loadSettings reads persisted preferences into memory, leaving the in-memory
 // defaults in place for any key the database doesn't have yet (e.g. a v3 database
 // just migrated to v4 has an empty settings table).
 func (s *Store) loadSettings() error {
-	var value string
-	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = 'daily_goal_minutes'`).Scan(&value)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		return nil // keep the default
-	case err != nil:
-		return err
+	value, ok, err := s.getSetting("daily_goal_minutes")
+	if err != nil || !ok {
+		return err // on !ok this is nil: keep the default
 	}
 	n, err := strconv.Atoi(value)
 	if err != nil {
@@ -567,15 +612,10 @@ func (s *Store) loadSettings() error {
 	return nil
 }
 
-// setDailyGoalMinutes upserts the daily focus goal and updates the in-memory copy.
-// Like addFocusSession it writes a single row rather than going through save(),
-// keeping settings independent of the task-graph rewrite. The caller must hold the
-// lock.
+// setDailyGoalMinutes upserts the daily focus goal and updates the in-memory
+// copy. The caller must hold the lock.
 func (s *Store) setDailyGoalMinutes(n int) error {
-	if _, err := s.db.Exec(
-		`INSERT INTO settings (key, value) VALUES ('daily_goal_minutes', ?)
-		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-		strconv.Itoa(n)); err != nil {
+	if err := s.setSetting("daily_goal_minutes", strconv.Itoa(n)); err != nil {
 		return err
 	}
 	s.settings.DailyGoalMinutes = n
