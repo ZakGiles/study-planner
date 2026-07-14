@@ -14,7 +14,7 @@
     SetTaskColor,
     SetTaskArchived,
     SetTaskSubject,
-  } from '../../wailsjs/go/main/App.js';
+  } from './backend';
   import {
     formatDate,
     relativeLabel,
