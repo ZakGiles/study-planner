@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import type { main } from '../../wailsjs/go/models';
-  import { RecordFocusSession } from '../../wailsjs/go/main/App.js';
+  import { RecordFocusSession } from './backend';
   import { today } from './today';
   import { toISO, plural } from './dates';
   import { taskHex } from './colors';

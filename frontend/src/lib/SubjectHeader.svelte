@@ -6,7 +6,7 @@
   // list, so it only emits `moveUp`/`moveDown` for App to resolve.
   import { createEventDispatcher } from 'svelte';
   import type { main } from '../../wailsjs/go/models';
-  import { UpdateSubject, SetSubjectColor, DeleteSubject } from '../../wailsjs/go/main/App.js';
+  import { UpdateSubject, SetSubjectColor, DeleteSubject } from './backend';
   import { makeMutator } from './mutate';
   import { plural } from './dates';
   import { TASK_COLORS, taskHex } from './colors';

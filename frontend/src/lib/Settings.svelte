@@ -5,17 +5,23 @@
   // and flows through App via the onSetGoal callback. Auto-start is an OS-level
   // toggle handled entirely by the backend.
   import { createEventDispatcher, onMount } from 'svelte';
-  import { GetAutoStart, SetAutoStart, ExportCalendar } from '../../wailsjs/go/main/App.js';
+  import { GetAutoStart, SetAutoStart, ExportCalendar, capabilities, exportBackup, importBackup } from './backend';
   import type { main } from '../../wailsjs/go/models';
   import { theme } from './theme';
   import { focusMin, breakMin, mode, FOCUS_MIN, FOCUS_MAX, BREAK_MIN, BREAK_MAX } from './focusPrefs';
   import { sounds, uploadSound, clearSound, playSound, type SoundKind } from './sounds';
+  import { maybeNotifyDueToday, notifyEnabled, requestPermission } from './notify';
+  import ConfirmModal from './ConfirmModal.svelte';
 
   // The daily focus-time goal (minutes) and the backend setter, owned by App.
   export let dailyGoalMinutes = 0;
   export let onSetGoal: (minutes: number) => void;
 
-  const dispatch = createEventDispatcher<{ error: string }>();
+  const dispatch = createEventDispatcher<{
+    error: string;
+    changed: main.State;
+    focusChanged: main.FocusSession[];
+  }>();
 
   // Goal is shown in hours (people set goals like "2h"); stored as minutes. This
   // tab remounts on each visit, so seeding once from the prop is enough.
@@ -42,11 +48,14 @@
     }
   }
 
-  // Launch on login. `available` is false in unbundled dev builds, where we show
-  // the toggle disabled rather than wiring it to a transient path.
+  // Launch on login. The whole card only exists on desktop
+  // (capabilities.autoStart); `available` is additionally false in unbundled
+  // dev builds, where we show the toggle disabled rather than wiring it to a
+  // transient path.
   let autoStart: main.AutoStartStatus = { enabled: false, available: false };
   let autoBusy = false;
   onMount(async () => {
+    if (!capabilities.autoStart) return;
     try {
       autoStart = await GetAutoStart();
     } catch (e) {
@@ -81,6 +90,77 @@
       dispatch('error', `Couldn't export calendar: ${e}`);
     } finally {
       exporting = false;
+    }
+  }
+
+  // Backup (web only): this browser's storage is the only copy of the data, so
+  // an exported JSON file is the user's insurance against cleared site data.
+  // Importing replaces everything, behind an explicit confirm; App swaps in the
+  // returned state via the changed/focusChanged events.
+  let backupMsg = '';
+  let importFile: File | null = null; // non-null = confirm modal is open
+  let importing = false;
+
+  async function exportData() {
+    backupMsg = '';
+    try {
+      const name = await exportBackup();
+      backupMsg = `Saved ${name}`;
+    } catch (e) {
+      dispatch('error', `Couldn't export your data: ${e}`);
+    }
+  }
+
+  function onImportPick(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = ''; // allow re-picking the same file later
+    if (file) importFile = file;
+  }
+
+  async function onImportChoose(e: CustomEvent<string>) {
+    const file = importFile;
+    importFile = null;
+    if (e.detail !== 'replace' || !file || importing) return;
+    importing = true;
+    backupMsg = '';
+    try {
+      const res = await importBackup(await file.text());
+      dispatch('changed', res.state);
+      dispatch('focusChanged', res.focusSessions);
+      // The goal input is seeded once per mount, so re-seed it by hand.
+      goalHours = res.state.settings.dailyGoalMinutes / 60;
+      backupMsg = 'Data restored.';
+    } catch (err) {
+      dispatch('error', `Couldn't import that backup: ${err}`);
+    } finally {
+      importing = false;
+    }
+  }
+
+  // Web notifications: the permission request must come from the toggle's
+  // click (a user gesture). The user's preference (notifyEnabled) and the
+  // browser's grant are tracked separately — a blocked grant shows inline.
+  let notifyBusy = false;
+  let notifyBlocked = false;
+
+  async function toggleNotify() {
+    if (notifyBusy) return;
+    notifyBusy = true;
+    try {
+      if ($notifyEnabled) {
+        notifyEnabled.set(false);
+      } else {
+        notifyBlocked = false;
+        if (await requestPermission()) {
+          notifyEnabled.set(true);
+          void maybeNotifyDueToday(true); // immediate proof it works
+        } else {
+          notifyBlocked = true;
+        }
+      }
+    } finally {
+      notifyBusy = false;
     }
   }
 </script>
@@ -161,26 +241,48 @@
     </div>
   </div>
 
-  <!-- Startup -->
-  <div class="rounded-lg border border-line bg-surface px-5 py-[1.1rem] shadow-1">
-    <h3 class="m-0 mb-[0.2rem] font-display text-base font-bold text-fg-strong">Startup</h3>
-    <p class="mb-[0.8rem] text-[0.8rem] text-fg-muted">
-      {#if autoStart.available}
-        Open Study Planner automatically when you sign in.
-      {:else}
-        Launching on login is available in the installed app only.
+  {#if capabilities.autoStart}
+    <!-- Startup (desktop only) -->
+    <div class="rounded-lg border border-line bg-surface px-5 py-[1.1rem] shadow-1">
+      <h3 class="m-0 mb-[0.2rem] font-display text-base font-bold text-fg-strong">Startup</h3>
+      <p class="mb-[0.8rem] text-[0.8rem] text-fg-muted">
+        {#if autoStart.available}
+          Open Study Planner automatically when you sign in.
+        {:else}
+          Launching on login is available in the installed app only.
+        {/if}
+      </p>
+      <label class="inline-flex cursor-pointer items-center gap-[0.5rem] text-[0.88rem] text-fg {autoStart.available ? '' : 'cursor-not-allowed opacity-60'}">
+        <input
+          type="checkbox"
+          checked={autoStart.enabled}
+          disabled={!autoStart.available || autoBusy}
+          on:click|preventDefault={toggleAutoStart}
+        />
+        <span>Launch on login</span>
+      </label>
+    </div>
+  {/if}
+
+  {#if capabilities.notifications}
+    <!-- Notifications (web only; the desktop app notifies natively) -->
+    <div class="rounded-lg border border-line bg-surface px-5 py-[1.1rem] shadow-1">
+      <h3 class="m-0 mb-[0.2rem] font-display text-base font-bold text-fg-strong">Notifications</h3>
+      <p class="mb-[0.8rem] text-[0.8rem] text-fg-muted">A browser notification summarising due and overdue sessions, shown when the app first sees each new day.</p>
+      <label class="inline-flex cursor-pointer items-center gap-[0.5rem] text-[0.88rem] text-fg">
+        <input
+          type="checkbox"
+          checked={$notifyEnabled}
+          disabled={notifyBusy}
+          on:click|preventDefault={toggleNotify}
+        />
+        <span>Due-today reminders</span>
+      </label>
+      {#if notifyBlocked}
+        <p class="mt-[0.5rem] text-[0.78rem] text-red">Notifications are blocked for this site in your browser settings.</p>
       {/if}
-    </p>
-    <label class="inline-flex cursor-pointer items-center gap-[0.5rem] text-[0.88rem] text-fg {autoStart.available ? '' : 'cursor-not-allowed opacity-60'}">
-      <input
-        type="checkbox"
-        checked={autoStart.enabled}
-        disabled={!autoStart.available || autoBusy}
-        on:click|preventDefault={toggleAutoStart}
-      />
-      <span>Launch on login</span>
-    </label>
-  </div>
+    </div>
+  {/if}
 
   <!-- Calendar export -->
   <div class="rounded-lg border border-line bg-surface px-5 py-[1.1rem] shadow-1">
@@ -195,4 +297,34 @@
       {/if}
     </div>
   </div>
+
+  {#if capabilities.backup}
+    <!-- Backup (web only) -->
+    <div class="rounded-lg border border-line bg-surface px-5 py-[1.1rem] shadow-1">
+      <h3 class="m-0 mb-[0.2rem] font-display text-base font-bold text-fg-strong">Backup</h3>
+      <p class="mb-[0.8rem] text-[0.8rem] text-fg-muted">Your data lives only in this browser. Export a backup file to keep it safe or move it elsewhere; import one to replace everything here.</p>
+      <div class="flex items-center gap-3">
+        <button class="btn primary" type="button" on:click={exportData}>Export data</button>
+        <label class="btn ghost cursor-pointer">
+          Import data…
+          <input type="file" accept="application/json,.json" class="hidden" disabled={importing} on:change={onImportPick} />
+        </label>
+        {#if backupMsg}
+          <span class="min-w-0 truncate text-[0.8rem] text-fg-muted" title={backupMsg}>{backupMsg}</span>
+        {/if}
+      </div>
+    </div>
+  {/if}
 </section>
+
+{#if importFile}
+  <ConfirmModal
+    title="Replace all data?"
+    message={`Importing "${importFile.name}" replaces every task, subject, session and focus record in this browser with the backup's contents.`}
+    actions={[
+      { value: 'replace', label: 'Replace everything', kind: 'danger' },
+      { value: 'cancel', label: 'Cancel' },
+    ]}
+    on:choose={onImportChoose}
+  />
+{/if}

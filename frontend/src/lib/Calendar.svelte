@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import type { main } from '../../wailsjs/go/models';
-  import { AddSession, GradeSession, ToggleSession } from '../../wailsjs/go/main/App.js';
+  import { AddSession, GradeSession, ToggleSession } from './backend';
   import { toISO, formatDate, relativeLabel, sessionStatus, plural } from './dates';
   import { today } from './today';
   import { taskHex } from './colors';

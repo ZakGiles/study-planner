@@ -12,7 +12,9 @@
     GradeSession,
     GetFocusSessions,
     SetDailyGoalMinutes,
-  } from '../wailsjs/go/main/App.js';
+    capabilities,
+  } from './lib/backend';
+  import { initNotifications } from './lib/notify';
   import TaskCard from './lib/TaskCard.svelte';
   import SubjectHeader from './lib/SubjectHeader.svelte';
   import Calendar from './lib/Calendar.svelte';
@@ -108,6 +110,10 @@
     void loadSounds();
     loading = false;
   });
+
+  // Web-only due-today reminders (the desktop backend notifies natively). A
+  // separate non-async onMount so the unsubscriber doubles as its cleanup.
+  onMount(() => (capabilities.notifications ? initNotifications() : undefined));
 
   function showError(msg: string) {
     errorMsg = msg;
@@ -860,7 +866,13 @@
           {:else if activeTab === 'stats'}
             <Stats {tasks} {subjects} {focusSessions} />
           {:else if activeTab === 'settings'}
-            <Settings {dailyGoalMinutes} onSetGoal={setGoal} on:error={onError} />
+            <Settings
+              {dailyGoalMinutes}
+              onSetGoal={setGoal}
+              on:error={onError}
+              on:changed={onChanged}
+              on:focusChanged={(e) => (focusSessions = e.detail)}
+            />
           {/if}
 
           <!-- Focus stays mounted (just hidden) across tab switches so a running
