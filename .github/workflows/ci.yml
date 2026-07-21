@@ -1,0 +1,87 @@
+name: CI
+
+# Test gate for every change: the Go backend suite and the frontend checks
+# (svelte-check, vitest, build) run on each pull request and push to main.
+# pages.yml re-runs the frontend checks as its deploy gate; this workflow is
+# what covers PRs — and the Go tests, which no other workflow runs.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch: {} # allow manual runs
+
+permissions:
+  contents: read
+
+# One run per branch; a newer push supersedes an in-flight one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  go:
+    name: Go tests
+    # Same OS + WebKitGTK recipe as the Linux release build: 22.04 ships
+    # webkit2gtk-4.0; newer Ubuntu only has 4.1 and would need the
+    # `webkit2_41` build tag (see release.yml).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Wails links the OS webview via cgo, so compiling the Go package needs
+      # the GTK/WebKit headers even just for tests.
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      # main.go embeds frontend/dist (gitignored), so the bundle must exist
+      # before the Go package can compile.
+      - name: Build embedded frontend
+        run: npm --prefix frontend ci && npm --prefix frontend run build
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...

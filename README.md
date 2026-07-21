@@ -28,8 +28,10 @@ on the web — there is no server and nothing leaves your machine.
   overdue schedules catch up.
 - **Agenda & calendar** — see what's due today, one-click **reschedule all
   overdue** reviews to today, and browse sessions on a calendar.
-- **Focus timer** — a Pomodoro-style focus block, optionally tied to a task.
-  Completed blocks are logged (abandoned time is not).
+- **Focus timer** — a Pomodoro-style focus block (countdown timer or
+  stopwatch), optionally tied to a task. Completed blocks are logged, and
+  stopping a block early still banks the focus time done so far — only very
+  short attempts are discarded.
 - **Stats** — track completed sessions and focus time over time.
 - **Native due-today notifications** — a daily summary of due and overdue
   reviews, refreshed at each local midnight while the app is running.
@@ -88,6 +90,9 @@ npm --prefix frontend run build    # build the frontend bundle
 The Wails CLI runs `npm install` and `npm run build` in `frontend/`
 automatically as part of `wails dev` / `wails build`.
 
+The same checks run in CI ([ci.yml](.github/workflows/ci.yml)) on every pull
+request and push to `main`.
+
 ## Project layout
 
 ```
@@ -98,7 +103,7 @@ store.go            SQLite-backed store; whole-graph save() on every mutation
 *_test.go           Go unit tests
 frontend/src/       Svelte UI — App.svelte plus lib/ (Calendar, Focus, Stats, TaskCard, …)
 frontend/src/lib/backend/  Backend adapter: Wails bindings on desktop, TS localStorage port (+ its vitest suite) on the web
-.github/workflows/  Cross-platform release builds + GitHub Pages deploy
+.github/workflows/  CI checks, cross-platform release builds, GitHub Pages deploy
 ```
 
 The Go layer keeps all subjects and tasks in memory as the authoritative working
