@@ -9,6 +9,7 @@
   import ConfirmModal from './ConfirmModal.svelte';
   import type { ModalAction } from './ConfirmModal.svelte';
   import GradeModal from './GradeModal.svelte';
+  import SubjectFilter, { UNGROUPED } from './SubjectFilter.svelte';
 
   export let tasks: main.Task[] = [];
   export let subjects: main.Subject[] = [];
@@ -18,7 +19,6 @@
   // Subject filter: '' = all subjects, a subject id, or the UNGROUPED sentinel.
   // Everything the calendar shows (and the quick-add task picker) derives from
   // viewTasks, so the month narrows to the chosen subject in one place.
-  const UNGROUPED = '\0ungrouped';
   let subjectFilter = '';
 
   $: subjectIds = new Set(subjects.map((s) => s.id));
@@ -193,25 +193,7 @@
   </div>
 
   {#if subjects.length}
-    <div class="mb-4 flex flex-wrap items-center gap-[0.4rem]">
-      <span class="mr-[0.2rem] text-[0.72rem] font-semibold uppercase tracking-[0.06em] text-fg-faint">Subject</span>
-      <button
-        class="cursor-pointer rounded-sm border px-[0.6rem] py-[0.22rem] text-[0.74rem] font-semibold transition-colors {subjectFilter === '' ? 'border-accent-bright bg-[var(--accent-grad)] text-white' : 'border-line bg-surface-2 text-fg-muted hover:border-line-strong hover:text-fg'}"
-        on:click={() => (subjectFilter = '')}
-      >All</button>
-      {#each subjects as s (s.id)}
-        <button
-          class="inline-flex cursor-pointer items-center gap-[0.35rem] rounded-sm border px-[0.6rem] py-[0.22rem] text-[0.74rem] font-semibold transition-colors {subjectFilter === s.id ? 'border-accent-bright bg-[var(--accent-grad)] text-white' : 'border-line bg-surface-2 text-fg-muted hover:border-line-strong hover:text-fg'}"
-          on:click={() => (subjectFilter = s.id)}
-        ><span class="h-[8px] w-[8px] rounded-full" style="background:{taskHex(s.color)}"></span>{s.name}</button>
-      {/each}
-      {#if hasUngrouped}
-        <button
-          class="cursor-pointer rounded-sm border px-[0.6rem] py-[0.22rem] text-[0.74rem] font-semibold transition-colors {subjectFilter === UNGROUPED ? 'border-accent-bright bg-[var(--accent-grad)] text-white' : 'border-line bg-surface-2 text-fg-muted hover:border-line-strong hover:text-fg'}"
-          on:click={() => (subjectFilter = UNGROUPED)}
-        >Ungrouped</button>
-      {/if}
-    </div>
+    <div class="mb-4"><SubjectFilter {subjects} {hasUngrouped} bind:value={subjectFilter} /></div>
   {/if}
 
   <div class="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-line bg-line shadow-1">
